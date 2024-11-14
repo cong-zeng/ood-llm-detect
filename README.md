@@ -132,13 +132,10 @@ This will display descriptions of the various configurable options that you can 
 
 If you use our code or findings in your research, please cite us as:
 ```
-@misc{guo2024detectivedetectingaigeneratedtext,
-      title={DeTeCtive: Detecting AI-generated Text via Multi-Level Contrastive Learning}, 
-      author={Xun Guo and Shan Zhang and Yongxin He and Ting Zhang and Wanquan Feng and Haibin Huang and Chongyang Ma},
-      year={2024},
-      eprint={2410.20964},
-      archivePrefix={arXiv},
-      primaryClass={cs.CL},
-      url={https://arxiv.org/abs/2410.20964}, 
+@article{nips2024detective,
+  title={DeTeCtive: Detecting AI-generated Text via Multi-Level Contrastive Learning},
+  author={Guo, Xun and Zhang, Shan and He, Yongxin and Zhang, Ting and Feng, Wanquan and Huang, Haibin and Ma, Chongyang},
+  journal={arXiv preprint arXiv:2410.20964},
+  year={2024}
 }
 ```
