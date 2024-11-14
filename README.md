@@ -9,6 +9,16 @@
 <h1>[NeurIPS 2024]  DeTeCtive: Detecting AI-generated Text via Multi-Level Contrastive Learning</h1>
 </div>
 
+## 📌 Table of Contents
+
+- [Introduction](#-introduction)
+- [Dataset](#-dataset)
+- [Installation](#-installation)
+- [Testing](#-testing)
+- [Training](#computer-training)
+- [Citation](#-citation)
+<!-- - [Contributing](#-contributing) -->
+
 ## 🚀 Introduction
 
 Recent advances in large language models (LLMs) have enabled the generation of text that closely resembles human writing, raising challenges for AI-generated text detection. **DeTeCtive** addresses these challenges with a multi-level contrastive learning framework, distinguishing nuanced writing styles to improve detection accuracy across various domains and models. This repository contains the code and models from our paper, [DeTeCtive: Detecting AI-generated Text via Multi-Level Contrastive Learning](https://arxiv.org/pdf/2410.20964).
@@ -17,10 +27,10 @@ Recent advances in large language models (LLMs) have enabled the generation of t
 
 Before starting, ensure that the required datasets are prepared correctly. This repository uses four primary datasets:
 
-- **Deepfake**
-- **SemEval2024-M4**
-- **TuringBench**
-- **OUTFOX**
+- **[Deepfake](https://github.com/yafuly/MAGE)**
+- **[SemEval2024-M4](https://github.com/mbzuai-nlp/SemEval2024-task8)**
+- **[TuringBench](https://huggingface.co/datasets/turingbench/TuringBench)**
+- **[OUTFOX](https://github.com/ryuryukke/OUTFOX)**
 
 You can download the pre-processed versions of these datasets from [Google Drive](https://drive.google.com/drive/folders/1FNfSmKFE40FHGBfGjypg_JS2aWO_G6gX). Once downloaded, unzip them into a single `datasets` directory, structured as follows:
 
