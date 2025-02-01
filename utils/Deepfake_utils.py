@@ -75,5 +75,6 @@ def load_deepfake(folder_path=None):
     
     for key in data_new:
         data_new[key] = process_data(data_new[key])
-
+    # only use 5% of the data
+        # data_new[key] = process_data(data_new[key][:int(len(data_new[key]) * 0.05)])
     return data_new

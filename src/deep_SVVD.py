@@ -154,7 +154,7 @@ class SimCLR_Classifier_test(nn.Module):
         return out
 
 class SimCLR_Classifier(nn.Module):
-    def __init__(self, opt,fabric):
+    def __init__(self, opt, fabric):
         super(SimCLR_Classifier, self).__init__()
 
         self.temperature = opt.temperature
@@ -169,6 +169,7 @@ class SimCLR_Classifier(nn.Module):
         
         self.model = self.fabric.setup_module(self.model)
         print("Model is on:", next(self.model.parameters()).device)
+        self.device=self.model.device
        
         self.esp=self.fabric.to_device(torch.tensor(1e-6))
         self.a = self.fabric.to_device(torch.tensor(opt.a))
@@ -302,9 +303,10 @@ class SimCLR_Classifier(nn.Module):
                 return loss,loss_model,loss_set,loss_label,loss_DeepSVDD,loss_human,k,k_label
         
         else:
-            # out = self.fabric.all_gather(out).view(-1, out.size(1))
-            out = "placeholder"
+            dist = torch.sum((k - self.c) ** 2, dim=1)
+            # out = "placeholder"
+            # print(out)
             if self.opt.AA:
-                return loss,out,k,k_index1
+                return loss,dist,k,k_index1
             else:
-                return loss,out,k,k_label
+                return loss,dist,k,k_label

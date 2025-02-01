@@ -25,6 +25,7 @@ from utils.M4_utils import load_M4
 from utils.Deepfake_utils import load_deepfake
 from lightning.fabric.strategies import DDPStrategy
 from torch.utils.data.dataloader import default_collate
+from sklearn.metrics import roc_auc_score
 
 def process_top_ids_and_scores(top_ids_and_scores, label_dict):
     preds=[]
@@ -263,7 +264,7 @@ def train(opt):
             model.eval()
             pbar = enumerate(val_dataloder)
             if fabric.global_rank == 0 :
-                test_embeddings, test_labels = [],[]           
+                test_embeddings, test_labels, preds_list = [],[], []           
                 pbar = tqdm(pbar, total=len(val_dataloder))
                 print(('\n' + '%11s' *(5)) % ('Epoch', 'GPU_mem', 'Cur_acc', 'avg_acc','loss'))
             
@@ -285,64 +286,70 @@ def train(opt):
 
                 mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
                 if fabric.global_rank == 0 :
+                    preds_list.append(out.cpu())
                     test_embeddings.append(k_out.cpu())
-                    test_labels.extend(k_outlabel.cpu().tolist())
+                    test_labels.append(k_outlabel.cpu())
                     pbar.set_description(
                         # ('%11s' * 2 + '%11.4g' * 3) %
                         # (f'{epoch + 1}/{opt.total_epoch}', mem, cur_right_num/cur_num, right_num/tot_num,loss.item())
                         ('%11s' * 2 + '%11.4g') % 
                         (f'{epoch + 1}/{opt.total_epoch}', mem, loss.item())
                     )
-                    
+            if fabric.global_rank == 0 :
+                pred_np = torch.cat(preds_list).view(-1).numpy()
+                label_np = torch.cat(test_labels).view(-1).numpy()
+                auc = roc_auc_score(label_np, pred_np)
+                print(f"Val test auc: {auc}")
         torch.cuda.empty_cache()
         fabric.barrier()
         # embedding 检索 和 指标计算
-        if opt.only_classifier==False and fabric.global_rank == 0:
-            print("Add embeddings to index!")
-            allembeddings = torch.cat(allembeddings, dim=0)
-            epsilon = 1e-6
-            norms  = torch.norm(allembeddings, dim=1, keepdim=True) + epsilon
-            allembeddings= allembeddings / norms
-            allids=range(len(alllabels))
-            for i in range(len(allids)):
-                label_dict[allids[i]]=alllabels[i]
-            index.index_data(allids,allembeddings.numpy())
-            print("Add embeddings to index done!")
+        # if opt.only_classifier==False and fabric.global_rank == 0:
+        #     print("Add embeddings to index!")
+        #     allembeddings = torch.cat(allembeddings, dim=0)
+        #     epsilon = 1e-6
+        #     norms  = torch.norm(allembeddings, dim=1, keepdim=True) + epsilon
+        #     allembeddings= allembeddings / norms
+        #     allids=range(len(alllabels))
+        #     for i in range(len(allids)):
+        #         label_dict[allids[i]]=alllabels[i]
+        #     index.index_data(allids,allembeddings.numpy())
+        #     print("Add embeddings to index done!")
         
-            print("Search knn!")
-            test_embeddings = torch.cat(test_embeddings, dim=0)
-            test_labels=[str(test_labels[i]) for i in range(len(test_labels))]
-            epsilon = 1e-6
-            norms  = torch.norm(test_embeddings, dim=1, keepdim=True) + epsilon
-            test_embeddings= test_embeddings / norms
-            if len(test_embeddings.shape) == 1:
-                test_embeddings = test_embeddings.reshape(1, -1)
-            test_embeddings=test_embeddings.numpy()
-            top_ids_and_scores = index.search_knn(test_embeddings, opt.topk)
-            if opt.AA:
-                preds = process_top_ids_and_scores_AA(top_ids_and_scores, label_dict)
-            else:
-                preds = process_top_ids_and_scores(top_ids_and_scores, label_dict)
-            print("Search knn done!")
-            if opt.AA:
-                # print(test_labels[:10],preds[:10])
-                accuracy, avg_f1,avg_rec = calculate_metrics(test_labels, preds)
-                print(f"Validation Accuracy: {accuracy}, AvgF1: {avg_f1}, AvgRecall: {avg_rec}")
-                # writer.add_scalar('val/val_loss', test_loss, epoch)
-                writer.add_scalar('val/val_acc', accuracy, epoch)
-                writer.add_scalar('val/val_avg_f1', avg_f1, epoch)
-                writer.add_scalar('val/val_avg_recall', avg_rec, epoch)
-            else:
-                human_rec, machine_rec, avg_rec, acc, precision, recall, f1 = compute_metrics(test_labels, preds)
-                print(f"Validation HumanRec: {human_rec}, MachineRec: {machine_rec}, AvgRec: {avg_rec}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
-                # writer.add_scalar('val/val_loss', test_loss, epoch)
-                writer.add_scalar('val/val_acc', acc, epoch)
-                writer.add_scalar('val/val_precision', precision, epoch)
-                writer.add_scalar('val/val_recall', recall, epoch)
-                writer.add_scalar('val/val_f1', f1, epoch)
-                writer.add_scalar('val/val_human_rec', human_rec, epoch)
-                writer.add_scalar('val/val_machine_rec', machine_rec, epoch)
-                writer.add_scalar('val/val_avg_rec', avg_rec, epoch)
+        #     print("Search knn!")
+        #     test_embeddings = torch.cat(test_embeddings, dim=0)
+        #     test_labels=[str(test_labels[i]) for i in range(len(test_labels))]
+        #     epsilon = 1e-6
+        #     norms  = torch.norm(test_embeddings, dim=1, keepdim=True) + epsilon
+        #     test_embeddings= test_embeddings / norms
+        #     if len(test_embeddings.shape) == 1:
+        #         test_embeddings = test_embeddings.reshape(1, -1)
+        #     test_embeddings=test_embeddings.numpy()
+        #     top_ids_and_scores = index.search_knn(test_embeddings, opt.topk)
+        #     if opt.AA:
+        #         preds = process_top_ids_and_scores_AA(top_ids_and_scores, label_dict)
+        #     else:
+        #         preds = process_top_ids_and_scores(top_ids_and_scores, label_dict)
+        #     print("Search knn done!")
+        #     if opt.AA:
+        #         # print(test_labels[:10],preds[:10])
+        #         accuracy, avg_f1,avg_rec = calculate_metrics(test_labels, preds)
+        #         print(f"Validation Accuracy: {accuracy}, AvgF1: {avg_f1}, AvgRecall: {avg_rec}")
+        #         # writer.add_scalar('val/val_loss', test_loss, epoch)
+        #         writer.add_scalar('val/val_acc', accuracy, epoch)
+        #         writer.add_scalar('val/val_avg_f1', avg_f1, epoch)
+        #         writer.add_scalar('val/val_avg_recall', avg_rec, epoch)
+        #     else:
+        #         human_rec, machine_rec, avg_rec, acc, precision, recall, f1 = compute_metrics(test_labels, preds)
+        #         print(f"Validation HumanRec: {human_rec}, MachineRec: {machine_rec}, AvgRec: {avg_rec}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
+        #         # writer.add_scalar('val/val_loss', test_loss, epoch)
+        #         writer.add_scalar('val/val_acc', acc, epoch)
+        #         writer.add_scalar('val/val_precision', precision, epoch)
+        #         writer.add_scalar('val/val_recall', recall, epoch)
+        #         writer.add_scalar('val/val_f1', f1, epoch)
+        #         writer.add_scalar('val/val_human_rec', human_rec, epoch)
+        #         writer.add_scalar('val/val_machine_rec', machine_rec, epoch)
+        #         writer.add_scalar('val/val_avg_rec', avg_rec, epoch)
+
 
         if fabric.global_rank == 0:
             # writer.add_scalar('val/acc_classifier', right_num/tot_num, epoch)
