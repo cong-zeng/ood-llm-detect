@@ -208,6 +208,7 @@ class SimCLR_Classifier(nn.Module):
                 c += outputs.sum(dim=0)
                 n_samples += outputs.shape[0]
         c /= n_samples
+        torch.distributed.all_reduce(c, torch.distributed.ReduceOp.SUM)
         # Normalize to the hypersphere surface.
         c = c / torch.norm(c)
         self.DeepSVDD.c = c
