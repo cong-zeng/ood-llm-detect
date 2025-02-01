@@ -1,0 +1,12 @@
+*.tmp
+*.swp
+.DS_Store
+
+/data
+.env
+
+# pycache
+__pycache__/
+ckpt/
+
+runs/

@@ -1,8 +1,8 @@
-DATA_PATH="/opt/LLM_detect_data" #PATH for the data
-Model_PATH="/opt/DeTeCtive/pth/Deepfake_best.pth" #PATH for the model ckpt
+DATA_PATH="data" #PATH for the data
+Model_PATH="ckpt/Deepfake_best.pth" #PATH for the model ckpt
 
 # deepfake
-python test_knn.py --device_num 8 --batch_size 128 --max_K 5 --model_name princeton-nlp/unsup-simcse-roberta-base \
+python test_knn.py --device_num 1 --batch_size 128 --max_K 5 --model_name princeton-nlp/unsup-simcse-roberta-base \
                    --mode deepfake --database_path ${DATA_PATH}/Deepfake/cross_domains_cross_models --database_name 'train' \
                    --test_dataset_path ${DATA_PATH}/Deepfake/cross_domains_cross_models --test_dataset_name 'test'\
                    --model_path ${Model_PATH} --save_database --save_path database/deepfake

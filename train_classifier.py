@@ -3,6 +3,7 @@ sys.path.append('./')
 import random
 random.seed(42)
 from tqdm import tqdm
+import numpy as np
 import os
 import argparse
 from transformers import AutoTokenizer
@@ -11,7 +12,9 @@ from utils.utils import compute_metrics,calculate_metrics
 import torch
 from src.dataset import PassagesDataset
 from torch.utils.data import DataLoader
-from src.simclr import SimCLR_Classifier,SimCLR_Classifier_SCL
+# from src.simclr import SimCLR_Classifier,SimCLR_Classifier_SCL
+from src.deep_SVVD import SimCLR_Classifier,SimCLR_Classifier_SCL
+
 from lightning import Fabric
 from torch.utils.tensorboard import SummaryWriter
 import torch.optim as optim
@@ -66,7 +69,12 @@ def collate_fn(batch):
         )
     return encoded_batch,label,write_model,write_model_set
 
+def get_radius(dist: torch.Tensor, nu: float):
+    """Optimally solve for radius R via the (1-nu)-quantile of distances."""
+    return np.quantile(np.sqrt(dist.clone().detach().cpu().numpy()), 1 - nu)
+
 def train(opt):
+    # 训练环境设置
     torch.set_float32_matmul_precision("medium")
     if opt.device_num>1:
         ddp_strategy = DDPStrategy(find_unused_parameters=True)
@@ -74,7 +82,7 @@ def train(opt):
     else:
         fabric = Fabric(accelerator="cuda", precision="bf16-mixed", devices=opt.device_num)
     fabric.launch()
-
+    # 数据集加载，根据指定数据集加载数据类型
     if opt.dataset=='deepfake':
         dataset = load_deepfake(opt.path)
         passages_dataset = PassagesDataset(dataset[opt.database_name],mode='deepfake')
@@ -105,26 +113,29 @@ def train(opt):
         opt.a=opt.b=opt.c=0
         opt.d=1
         opt.one_loss=True
-
+    
+        # 模型加载,根据one_loss参数选择加载的模型，并切换到训练模式
+    
     if opt.one_loss:
         model = SimCLR_Classifier_SCL(opt,fabric).train()
     else:
-        model = SimCLR_Classifier(opt,fabric).train()
+        model = SimCLR_Classifier(opt,fabric)
+        # assert opt.freeze_layer<=12 and opt.freeze_layer>=0, "freeze_layer should be in [0,12]"
+
+        # if opt.freeze_layer>0 or opt.freeze_embedding_layer:
+        #     name_list=[]
+        #     for i in range(opt.freeze_layer,12):
+        #         for name, param in model.model.named_parameters():
+        #             if name.startswith(f'encoder.layer.{i}'):
+        #                 name_list.append(name)
+
+        #     for name, param in  model.model.named_parameters():
+        #         if name in name_list:
+        #             param.requires_grad = True
+        #         else:
+        #             param.requires_grad = False
     
-    # assert opt.freeze_layer<=12 and opt.freeze_layer>=0, "freeze_layer should be in [0,12]"
-
-    # if opt.freeze_layer>0 or opt.freeze_embedding_layer:
-    #     name_list=[]
-    #     for i in range(opt.freeze_layer,12):
-    #         for name, param in model.model.named_parameters():
-    #             if name.startswith(f'encoder.layer.{i}'):
-    #                 name_list.append(name)
-
-    #     for name, param in  model.model.named_parameters():
-    #         if name in name_list:
-    #             param.requires_grad = True
-    #         else:
-    #             param.requires_grad = False
+    #设置模型参数冻结，根据freeze_embedding_layer参数选择是否冻结embedding层  
     if opt.freeze_embedding_layer:
         for name, param in model.model.named_parameters():
             if 'emb' in name:
@@ -135,7 +146,7 @@ def train(opt):
             if 'classifier' in name:
                 param.requires_grad=False
 
-    passages_dataloder,val_dataloder=fabric.setup_dataloaders(passages_dataloder,val_dataloder)
+    passages_dataloder,val_dataloder = fabric.setup_dataloaders(passages_dataloder,val_dataloder)
     
     if fabric.global_rank == 0 :
         for num in range(10000):
@@ -145,6 +156,7 @@ def train(opt):
                 break
         if os.path.exists(os.path.join(opt.savedir,'runs'))==False:
             os.makedirs(os.path.join(opt.savedir,'runs'))
+        # 初始化日志记录器
         writer = SummaryWriter(os.path.join(opt.savedir,'runs'))
         index = Indexer(opt.projection_size)
         #save opt to yaml
@@ -152,22 +164,32 @@ def train(opt):
         with open(os.path.join(opt.savedir,'config.yaml'), 'w') as file:
             yaml.dump(opt_dict, file, sort_keys=False)
 
-    
+    # 设置训练过程的超参数，优化器，学习率调度器
     num_batches_per_epoch = len(passages_dataloder)
-    warmup_steps=opt.warmup_steps
+    warmup_steps = opt.warmup_steps
     lr = opt.lr
     total_steps = opt.total_epoch * num_batches_per_epoch- warmup_steps
     optimizer = optim.AdamW(filter(lambda p : p.requires_grad, model.parameters()), lr=opt.lr, betas=(opt.beta1, opt.beta2), eps=opt.eps, weight_decay=opt.weight_decay)
     
     # optimizer = optim.SGD(model.parameters(), lr=opt.lr, momentum=0.9, weight_decay=opt.weight_decay)
-    schedule = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, total_steps, eta_min=lr/10)
-    model, optimizer = fabric.setup(model, optimizer)
+    schedule = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, total_steps, eta_min=lr/10)
+    # model, optimizer = fabric.setup(model, optimizer)
+    model = fabric.setup_module(model)
+    model.mark_forward_method('initialize_center_c')
+    optimizer = fabric.setup_optimizers(optimizer)
     max_avg_rec=0
+    
+    # 初始化center_c
+    print("Initialize center_c!")
+    model.initialize_center_c(passages_dataloder)
+
+    # 训练loop
     for epoch in range(opt.total_epoch):
         model.train()
-        avg_loss=0
+        avg_loss = 0
         pbar = enumerate(passages_dataloder)
+
+        # fabric的barrier同步，确保每个进程在同一时间开始训练
         if fabric.global_rank == 0:
             # print("the model has {} parameters".format(sum(p.numel() for p in model.parameters()))
             # for name, param in model.named_parameters():
@@ -175,34 +197,47 @@ def train(opt):
             #         print(name)
             if opt.one_loss:
                 print("Train with one loss!")
+            # 把index重置，重新添加数据
             index.reset()
             allembeddings, alllabels= [],[]
-            label_dict={}            
-            pbar = tqdm(pbar, total=len(passages_dataloder))
+            label_dict = {}            
+            pbar = tqdm(pbar, total = len(passages_dataloder))
             print(('\n' + '%11s' *(5)) % ('Epoch', 'GPU_mem', 'Cur_loss', 'avg_loss','lr'))
-        for i,batch in pbar:
-            optimizer.zero_grad()
-            current_step=epoch*num_batches_per_epoch+i
+
+        for i, batch in pbar:
+            #梯度清零
+            optimizer.zero_grad() 
+
+            # warmup学习率调度
+            current_step = epoch * num_batches_per_epoch + i
             if current_step < warmup_steps:
                 current_lr = lr * current_step / warmup_steps
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = current_lr
             current_lr = optimizer.param_groups[0]['lr']
 
-            encoded_batch,label,write_model,write_model_set = batch
-            encoded_batch = {k: v.cuda() for k, v in encoded_batch.items()}
-        
+            # 数据加载和模型前向传播
+            encoded_batch, label, write_model, write_model_set = batch
+            encoded_batch = { k: v.cuda() for k, v in encoded_batch.items()}
+
+            # 模型前向传播，计算损失
             if opt.one_loss:
-                loss,loss_label,loss_classfiy,k_out,k_outlabel  = model(encoded_batch,write_model,write_model_set,label)
+                loss, loss_label, loss_classfiy, k_out, k_outlabel  = model(encoded_batch, write_model, write_model_set,label)
             else:
-                loss,loss_model,loss_set,loss_label,loss_classfiy,loss_human,k_out,k_outlabel  = model(encoded_batch,write_model,write_model_set,label)
-            avg_loss=(avg_loss*i+loss.item())/(i+1)
-            fabric.backward(loss)
+                loss, loss_model, loss_set, loss_label, loss_classfiy, loss_human, k_out, k_outlabel  = model(encoded_batch,write_model,write_model_set,label)
+        
+            # 损失反向传播和参数更新
+            avg_loss = (avg_loss * i + loss.item()) / (i+1)
+            fabric.backward(loss) #分布式反向传播
+
             # fabric.clip_gradients(model, optimizer, max_norm=1.0, norm_type=2)
-            optimizer.step()
+            optimizer.step() 
+
+            # 学习率调度
             if current_step >= warmup_steps:
                 schedule.step()
 
+            # 日志记录
             mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
             if fabric.global_rank == 0:
                 pbar.set_description(
@@ -222,41 +257,46 @@ def train(opt):
                         writer.add_scalar('loss_model_set', loss_set.item(), current_step)
                         writer.add_scalar('loss_human', loss_human.item(), current_step)
         
+        # 验证和指标计算
         with torch.no_grad():
-            test_loss=0
+            test_loss = 0
             model.eval()
-            pbar=enumerate(val_dataloder)
+            pbar = enumerate(val_dataloder)
             if fabric.global_rank == 0 :
-                test_embeddings,test_labels = [],[]           
+                test_embeddings, test_labels = [],[]           
                 pbar = tqdm(pbar, total=len(val_dataloder))
                 print(('\n' + '%11s' *(5)) % ('Epoch', 'GPU_mem', 'Cur_acc', 'avg_acc','loss'))
-
-            right_num, tot_num= 0,0
+            
+            # 在验证集上评估模型表现，记录预测正确的样本数和总样本数
+            # right_num, tot_num = 0,0
             for i, batch in pbar:
-                encoded_batch,label,write_model,write_model_set = batch
-                encoded_batch = {k: v.cuda() for k, v in encoded_batch.items()}
-                loss,out,k_out,k_outlabel= model(encoded_batch,write_model,write_model_set,label)
-                preds = torch.argmax(out, dim=1)
-                # print(preds.shape,k_outlabel.shape)
-                cur_right_num = (preds == k_outlabel).sum().item()
-                cur_num = k_outlabel.shape[0]
+                encoded_batch, label, write_model, write_model_set = batch
+                encoded_batch = { k: v.cuda() for k, v in encoded_batch.items()}
+                loss, out, k_out, k_outlabel = model(encoded_batch, write_model, write_model_set,label)        
+                # preds = torch.argmax(out, dim=1)
+                # print(preds.shape, k_outlabel.shape)
+                # cur_right_num = (preds == k_outlabel).sum().item()
+                # cur_num = k_outlabel.shape[0]
 
-                right_num+=cur_right_num
-                tot_num+=cur_num
-
-                test_loss=(test_loss*i+loss.item())/(i+1)
+                # right_num += cur_right_num 
+                # tot_num += cur_num
+                # 指标计算
+                # test_loss = (test_loss * i + loss.item()) / (i + 1)
 
                 mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
                 if fabric.global_rank == 0 :
                     test_embeddings.append(k_out.cpu())
                     test_labels.extend(k_outlabel.cpu().tolist())
                     pbar.set_description(
-                        ('%11s' * 2 + '%11.4g' * 3) %
-                        (f'{epoch + 1}/{opt.total_epoch}', mem, cur_right_num/cur_num, right_num/tot_num,loss.item())
+                        # ('%11s' * 2 + '%11.4g' * 3) %
+                        # (f'{epoch + 1}/{opt.total_epoch}', mem, cur_right_num/cur_num, right_num/tot_num,loss.item())
+                        ('%11s' * 2 + '%11.4g') % 
+                        (f'{epoch + 1}/{opt.total_epoch}', mem, loss.item())
                     )
                     
         torch.cuda.empty_cache()
         fabric.barrier()
+        # embedding 检索 和 指标计算
         if opt.only_classifier==False and fabric.global_rank == 0:
             print("Add embeddings to index!")
             allembeddings = torch.cat(allembeddings, dim=0)
@@ -280,22 +320,22 @@ def train(opt):
             test_embeddings=test_embeddings.numpy()
             top_ids_and_scores = index.search_knn(test_embeddings, opt.topk)
             if opt.AA:
-                preds=process_top_ids_and_scores_AA(top_ids_and_scores, label_dict)
+                preds = process_top_ids_and_scores_AA(top_ids_and_scores, label_dict)
             else:
-                preds=process_top_ids_and_scores(top_ids_and_scores, label_dict)
+                preds = process_top_ids_and_scores(top_ids_and_scores, label_dict)
             print("Search knn done!")
             if opt.AA:
                 # print(test_labels[:10],preds[:10])
-                accuracy, avg_f1,avg_rec=calculate_metrics(test_labels, preds)
+                accuracy, avg_f1,avg_rec = calculate_metrics(test_labels, preds)
                 print(f"Validation Accuracy: {accuracy}, AvgF1: {avg_f1}, AvgRecall: {avg_rec}")
-                writer.add_scalar('val/val_loss', test_loss, epoch)
+                # writer.add_scalar('val/val_loss', test_loss, epoch)
                 writer.add_scalar('val/val_acc', accuracy, epoch)
                 writer.add_scalar('val/val_avg_f1', avg_f1, epoch)
                 writer.add_scalar('val/val_avg_recall', avg_rec, epoch)
             else:
                 human_rec, machine_rec, avg_rec, acc, precision, recall, f1 = compute_metrics(test_labels, preds)
                 print(f"Validation HumanRec: {human_rec}, MachineRec: {machine_rec}, AvgRec: {avg_rec}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
-                writer.add_scalar('val/val_loss', test_loss, epoch)
+                # writer.add_scalar('val/val_loss', test_loss, epoch)
                 writer.add_scalar('val/val_acc', acc, epoch)
                 writer.add_scalar('val/val_precision', precision, epoch)
                 writer.add_scalar('val/val_recall', recall, epoch)
@@ -305,14 +345,14 @@ def train(opt):
                 writer.add_scalar('val/val_avg_rec', avg_rec, epoch)
 
         if fabric.global_rank == 0:
-            writer.add_scalar('val/acc_classifier', right_num/tot_num, epoch)
-            if opt.only_classifier:
-                avg_rec=right_num/tot_num
-            if avg_rec>max_avg_rec:
-                max_avg_rec=avg_rec
-                torch.save(model.get_encoder().state_dict(), os.path.join(opt.savedir,'model_best.pth'))
-                torch.save(model.state_dict(), os.path.join(opt.savedir,'model_classifier_best.pth'))
-                print('Save model to {}'.format(os.path.join(opt.savedir,'model_best.pth'.format(epoch))), flush=True)
+            # writer.add_scalar('val/acc_classifier', right_num/tot_num, epoch)
+            # if opt.only_classifier:
+                # avg_rec=right_num/tot_num
+            # if avg_rec>max_avg_rec:
+            #     max_avg_rec=avg_rec
+            #     torch.save(model.get_encoder().state_dict(), os.path.join(opt.savedir,'model_best.pth'))
+            #     torch.save(model.state_dict(), os.path.join(opt.savedir,'model_classifier_best.pth'))
+            #     print('Save model to {}'.format(os.path.join(opt.savedir,'model_best.pth'.format(epoch))), flush=True)
             
             if epoch%10==0:
                 torch.save(model.get_encoder().state_dict(), os.path.join(opt.savedir,'model_{}.pth'.format(epoch)))
@@ -335,6 +375,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--per_gpu_eval_batch_size", default=64, type=int, help="Batch size per GPU for evaluation."
     )
+    parser.add_argument("--R", type=float, default=0.0, help="DeepSVDD HP R")
+    parser.add_argument("--nu", type=float, default=0.1, help="DeepSVDD HP nu")
+    parser.add_argument("--C", default=None, help="DeepSVDD HP C")
+    parser.add_argument("--objective", type=str, default="one-class", help="one-class,soft-boundary")
+    parser.add_argument("--out_dim", type=int, default=128, help="output dim and dim of c")
 
     parser.add_argument("--dataset", type=str, default="deepfake", help="deepfake,OUTFOX,TuringBench,M4")
     parser.add_argument("--path", type=str, default="/home/heyongxin/LLM_detect_data/Deepfake_dataset/cross_domains_cross_models")

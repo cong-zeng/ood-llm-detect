@@ -24,7 +24,7 @@ def infer(passages_dataloder,fabric,tokenizer,model):
     model.model.eval()
     with torch.no_grad():
         for batch in passages_dataloder:
-            text,label,write_model,write_model_set,ids= batch
+            text, label, write_model, write_model_set, ids= batch
             encoded_batch = tokenizer.batch_encode_plus(
                         text,
                         return_tensors="pt",
@@ -49,19 +49,19 @@ def infer(passages_dataloder,fabric,tokenizer,model):
     if fabric.global_rank == 0 :
         allembeddings = torch.cat(allembeddings, dim=0)
         epsilon = 1e-6
-        emb_dict,label_dict={},{}
+        emb_dict, label_dict={},{}
         norms  = torch.norm(allembeddings, dim=1, keepdim=True) + epsilon
         allembeddings= allembeddings / norms
         for i in range(len(allids)):
             emb_dict[allids[i]]=allembeddings[i]
             label_dict[allids[i]]=alllabels[i]
-        allids,allembeddings,alllabels=[],[],[]
+        allids, allembeddings, alllabels=[],[],[]
         for key in emb_dict:
             allids.append(key)
             allembeddings.append(emb_dict[key])
             alllabels.append(label_dict[key])
         allembeddings = torch.stack(allembeddings, dim=0)
-        return allids, allembeddings.numpy(),alllabels
+        return allids, allembeddings.numpy(), alllabels
     else:
         return [],[],[]
 

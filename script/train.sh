@@ -1,9 +1,9 @@
-DATA_PATH="/opt/LLM_detect_data"
+DATA_PATH="data"
 
-# deepfake
-python train_classifier.py --device_num 8 --per_gpu_batch_size 32 --total_epoch 50 --lr 2e-5 --warmup_steps 2000\
-    --model_name princeton-nlp/unsup-simcse-roberta-base --dataset deepfake --path ${DATA_PATH}/Deepfake/cross_domains_cross_models \
-    --name deepfake-roberta-base --freeze_embedding_layer --database_name train --test_dataset_name test
+# # deepfake
+# python train_classifier.py --device_num 8 --per_gpu_batch_size 32 --total_epoch 50 --lr 2e-5 --warmup_steps 2000\
+#     --model_name princeton-nlp/unsup-simcse-roberta-base --dataset deepfake --path ${DATA_PATH}/Deepfake/cross_domains_cross_models \
+#     --name deepfake-roberta-base --freeze_embedding_layer --database_name train --test_dataset_name test
 
 # # TuringBench
 # python train_classifier.py --device_num 8 --per_gpu_batch_size 32 --total_epoch 50 --lr 2e-5 --warmup_steps 2000\
@@ -24,3 +24,11 @@ python train_classifier.py --device_num 8 --per_gpu_batch_size 32 --total_epoch 
 # python train_classifier.py --device_num 8 --per_gpu_batch_size 32 --total_epoch 50 --lr 2e-5 --warmup_steps 2000\
 #     --model_name princeton-nlp/unsup-simcse-roberta-base --dataset OUTFOX --path ${DATA_PATH}/OUTFOX \
 #     --name OUTFOX-roberta-base --freeze_embedding_layer --database_name train --test_dataset_name test
+
+
+# deepfake
+python train_classifier.py --device_num 1 --per_gpu_batch_size 64 --total_epoch 50 --lr 2e-5 --warmup_steps 2000\
+    --out_dim 768\
+    --model_name princeton-nlp/unsup-simcse-roberta-base --dataset deepfake --path ${DATA_PATH}/Deepfake/cross_domains_cross_models \
+    --name deepfake-roberta-base --freeze_embedding_layer --database_name train --test_dataset_name test
+
