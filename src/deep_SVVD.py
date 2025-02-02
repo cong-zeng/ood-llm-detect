@@ -279,8 +279,9 @@ class SimCLR_Classifier(nn.Module):
         #k:4N
         logits_model,logits_set,logits_label,logits_human = self._compute_logits(q,indices1, indices2,label,k,k_index1,k_index2,k_label)
         # out = self.DeepSVDD(q)
-        
-        loss_DeepSVDD = self.DeepSVDD.compute_loss(q)  # Calculate DeepSVDD loss.
+        machine_txt_idx = (label == 0).view(-1)
+        loss_DeepSVDD = self.DeepSVDD.compute_loss(q[machine_txt_idx])  # Calculate DeepSVDD loss.
+
 
         gt_model = torch.zeros(logits_model.size(0), dtype=torch.long,device=logits_model.device)
         gt_set = torch.zeros(logits_set.size(0), dtype=torch.long,device=logits_set.device)
