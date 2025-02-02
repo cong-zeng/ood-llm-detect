@@ -86,7 +86,9 @@ def train(opt):
     # 数据集加载，根据指定数据集加载数据类型
     if opt.dataset=='deepfake':
         dataset = load_deepfake(opt.path)
+        machine_passages_dataset = load_deepfake(opt.path, machine_text_only=True)
         passages_dataset = PassagesDataset(dataset[opt.database_name],mode='deepfake')
+        machine_passages_dataset = PassagesDataset(machine_passages_dataset[opt.database_name],mode='deepfake')
         val_dataset = PassagesDataset(dataset[opt.test_dataset_name],mode='deepfake')
     elif opt.dataset=='TuringBench':
         dataset = load_Turing(file_folder=opt.path)
@@ -106,7 +108,8 @@ def train(opt):
 
     passages_dataloder = DataLoader(passages_dataset, batch_size=opt.per_gpu_batch_size,\
                                      num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
-    
+    machine_passages_dataloder = DataLoader(machine_passages_dataset, batch_size=opt.per_gpu_batch_size,\
+                                     num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
     val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
                             num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
     
@@ -147,7 +150,7 @@ def train(opt):
             if 'classifier' in name:
                 param.requires_grad=False
 
-    passages_dataloder,val_dataloder = fabric.setup_dataloaders(passages_dataloder,val_dataloder)
+    passages_dataloder,val_dataloder, machine_passages_dataloder = fabric.setup_dataloaders(passages_dataloder,val_dataloder, machine_passages_dataloder)
     
     if fabric.global_rank == 0 :
         for num in range(10000):
@@ -167,6 +170,9 @@ def train(opt):
 
     # 设置训练过程的超参数，优化器，学习率调度器
     num_batches_per_epoch = len(passages_dataloder)
+    print("passage: ", len(passages_dataloder))
+    print("machine_passages_dataloder: ", len(machine_passages_dataloder))
+
     warmup_steps = opt.warmup_steps
     lr = opt.lr
     total_steps = opt.total_epoch * num_batches_per_epoch- warmup_steps
@@ -182,7 +188,7 @@ def train(opt):
     
     # 初始化center_c
     print("Initialize center_c!")
-    model.initialize_center_c(passages_dataloder)
+    model.initialize_center_c(machine_passages_dataloder)
 
     # 训练loop
     for epoch in range(opt.total_epoch):

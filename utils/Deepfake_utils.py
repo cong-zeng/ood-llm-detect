@@ -43,14 +43,21 @@ def find_lst(folder_path):
         file_names = ["valid.csv", "train.csv", "test.csv"]
     return file_names
 
-def process_data(dataset):
+def process_data(dataset, machine_text_only=False):
     data_list=[]
     for i in range(len(dataset)):
         text,label,src=dataset[i]['text'],str(dataset[i]['label']),dataset[i]['src']
-        data_list.append((text,label,src,stable_long_hash(text)))#
+        if machine_text_only:
+            if label == "0":
+                data_list.append((text,label,src,stable_long_hash(text)))#
+            else:
+                continue
+        else:
+            data_list.append((text,label,src,stable_long_hash(text)))#
+        
     return data_list
 
-def load_deepfake(folder_path=None):
+def load_deepfake(folder_path=None, machine_text_only=False):
     data_new = {
         'train': [],
         'test': [],
@@ -74,7 +81,7 @@ def load_deepfake(folder_path=None):
                 data_new[data_partition].append(dct)       
     
     for key in data_new:
-        data_new[key] = process_data(data_new[key])
+        data_new[key] = process_data(data_new[key], machine_text_only=machine_text_only)
     # only use 5% of the data
         # data_new[key] = process_data(data_new[key][:int(len(data_new[key]) * 0.05)])
     return data_new

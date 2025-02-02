@@ -42,6 +42,7 @@ class PassagesDataset(Dataset):
 
     def __getitem__(self, idx):
         text,label,src,id=self.dataset[idx]
+          
         write_model,write_model_set=1000,1000
         for name in self.model_name_set.keys():
             if name in src:
