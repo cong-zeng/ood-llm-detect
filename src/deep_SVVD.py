@@ -162,14 +162,14 @@ class SimCLR_Classifier(nn.Module):
         self.fabric = fabric
 
         self.model = TextEmbeddingModel(opt.model_name)
-
+        self.device=next(self.model.parameters()).device
         if opt.resum:
-            state_dict = torch.load(opt.pth_path, map_location=self.model.device)
+            state_dict = torch.load(opt.pth_path, map_location=self.device)
             self.model.load_state_dict(state_dict)
         
         self.model = self.fabric.setup_module(self.model)
         print("Model is on:", next(self.model.parameters()).device)
-        self.device=self.model.device
+        
        
         self.esp=self.fabric.to_device(torch.tensor(1e-6))
         self.a = self.fabric.to_device(torch.tensor(opt.a))
@@ -280,7 +280,7 @@ class SimCLR_Classifier(nn.Module):
         logits_model,logits_set,logits_label,logits_human = self._compute_logits(q,indices1, indices2,label,k,k_index1,k_index2,k_label)
         # out = self.DeepSVDD(q)
         machine_txt_idx = (label == 0).view(-1)
-        loss_DeepSVDD = self.DeepSVDD.compute_loss(q[machine_txt_idx])  # Calculate DeepSVDD loss.
+        loss_DeepSVDD = self.DeepSVDD.compute_loss(q)  # Calculate DeepSVDD loss.
 
 
         gt_model = torch.zeros(logits_model.size(0), dtype=torch.long,device=logits_model.device)
@@ -294,7 +294,7 @@ class SimCLR_Classifier(nn.Module):
         if logits_human.numel()!=0:
             loss_human = F.cross_entropy(logits_human.to(torch.float64), gt_human)
         else:
-            loss_human=torch.tensor(0,device=self.device)
+            loss_human=torch.tensor(0, device=self.device)
 
         loss = self.a*loss_model + self.b*loss_set + self.c*loss_label+(self.a+self.b+self.c)*loss_human+self.d*loss_DeepSVDD
         if self.training:

@@ -185,6 +185,7 @@ def train(opt):
     model.mark_forward_method('initialize_center_c')
     optimizer = fabric.setup_optimizers(optimizer)
     max_avg_rec=0
+    warm_up_n_epochs = 5  # number of training epochs for soft-boundary Deep SVDD before radius R gets updated
     
     # 初始化center_c
     print("Initialize center_c!")
@@ -243,7 +244,9 @@ def train(opt):
             # 学习率调度
             if current_step >= warmup_steps:
                 schedule.step()
-
+            if opt.objective == "soft-boundary" and (epoch >= warm_up_n_epochs):
+                loss_classfiy = fabric.all_gather(loss_classfiy).mean()
+                model.DeepSVDD.R.data = torch.tensor(get_radius(loss_classfiy, model.DeepSVDD.nu), device=model.device)
             # 日志记录
             mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
             if fabric.global_rank == 0:
@@ -289,6 +292,10 @@ def train(opt):
                 # tot_num += cur_num
                 # 指标计算
                 # test_loss = (test_loss * i + loss.item()) / (i + 1)
+                if opt.objective == 'soft-boundary':
+                    out = out - model.DeepSVDD.R ** 2
+                else:
+                    out = out
 
                 mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
                 if fabric.global_rank == 0 :

@@ -16,6 +16,7 @@ from utils.Deepfake_utils import load_deepfake
 from utils.OUTFOX_utils import load_OUTFOX
 from utils.M4_utils import load_M4
 from src.dataset  import PassagesDataset
+from sklearn.metrics import roc_auc_score
 
 def infer(passages_dataloder,fabric,tokenizer,model):
     if fabric.global_rank == 0 :
@@ -126,10 +127,11 @@ def test(opt):
             #save label_dict using pickle
             with open(os.path.join(opt.save_path, 'label_dict.pkl'), 'wb') as f:
                 pickle.dump(label_dict, f)
-
+        test_labels_int = [test_labels[i] for i in range(len(test_labels))]
         test_labels=[str(test_labels[i]) for i in range(len(test_labels))]
-
+        
         preds= {i: [] for i in range(1,opt.max_K+1)}
+        conf = []
         if len(test_embeddings.shape) == 1:
             test_embeddings = test_embeddings.reshape(1, -1)
         top_ids_and_scores = index.search_knn(test_embeddings, opt.max_K)
@@ -147,8 +149,13 @@ def test(opt):
                     one_num+=1
                 if zero_num>one_num:
                     preds[k].append('0')
+                    
                 else:
                     preds[k].append('1')
+            if zero_num>one_num:
+                conf.append(1 - float(zero_num)/opt.max_K)
+            else:
+                conf.append(float(one_num)/opt.max_K)
         K_values = list(range(1, opt.max_K+1))
         human_recs = []
         machine_recs = []
@@ -157,6 +164,7 @@ def test(opt):
         precisions = []
         recalls = []
         f1_scores = []
+        print(f"AUC is {roc_auc_score(test_labels_int, conf)}")
 
         for k in range(1,opt.max_K+1):
             human_rec, machine_rec, avg_rec, acc, precision, recall, f1 = compute_metrics(test_labels, preds[k],test_ids)

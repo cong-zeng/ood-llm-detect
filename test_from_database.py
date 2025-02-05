@@ -16,6 +16,7 @@ from utils.Deepfake_utils import load_deepfake
 from utils.OUTFOX_utils import load_OUTFOX
 from utils.M4_utils import load_M4
 from src.dataset  import PassagesDataset
+from sklearn.metrics import roc_auc_score
 
 def infer(passages_dataloder,fabric,tokenizer,model):
     if fabric.global_rank == 0 :
@@ -111,8 +112,9 @@ def test(opt):
         index = Indexer(opt.embedding_dim)
         index.deserialize_from(opt.database_path)
         label_dict=load_pkl(os.path.join(opt.database_path,'label_dict.pkl'))
+        test_labels_int = [test_labels[i] for i in range(len(test_labels))]
         test_labels=[str(test_labels[i]) for i in range(len(test_labels))]
-
+        conf = []
         preds= {i: [] for i in range(1,opt.max_K+1)}
         if len(test_embeddings.shape) == 1:
             test_embeddings = test_embeddings.reshape(1, -1)
@@ -133,6 +135,10 @@ def test(opt):
                     preds[k].append('0')
                 else:
                     preds[k].append('1')
+            if zero_num>one_num:
+                conf.append(1 - float(zero_num)/opt.max_K)
+            else:
+                conf.append(float(one_num)/opt.max_K)
         K_values = list(range(1, opt.max_K+1))
         human_recs = []
         machine_recs = []
@@ -141,6 +147,7 @@ def test(opt):
         precisions = []
         recalls = []
         f1_scores = []
+        print(f"AUC is {roc_auc_score(test_labels_int, conf)}")
 
         for k in range(1,opt.max_K+1):
             human_rec, machine_rec, avg_rec, acc, precision, recall, f1 = compute_metrics(test_labels, preds[k],test_ids)
