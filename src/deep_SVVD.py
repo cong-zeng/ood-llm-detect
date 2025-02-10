@@ -37,7 +37,7 @@ class DeepSVDD(nn.Module):
     
 class SimCLR_Classifier_SCL(nn.Module):
     """
-    SimCLR_Classifier_SCL model combining contrastive learning and DeepSVDD for anomaly detection and classification.
+    SimCLR_Classifier_SCL model combining contrastive learning and DeepSVDD 
     """
     def __init__(self, opt,fabric):
         super(SimCLR_Classifier_SCL, self).__init__()
@@ -48,14 +48,16 @@ class SimCLR_Classifier_SCL(nn.Module):
 
         # Initialize the text embedding model.
         self.model = TextEmbeddingModel(opt.model_name)
-        
+        self.device=next(self.model.parameters()).device
 
         # Load a pretrained model if resume option is set.
         if opt.resum:
             state_dict = torch.load(opt.pth_path, map_location=self.device)
             self.model.load_state_dict(state_dict)
 
-        self.device=self.model.model.device
+        self.model = self.fabric.setup_module(self.model)
+        print("Model is on:", next(self.model.parameters()).device)
+
         # Additional hyperparameters.
         self.esp=torch.tensor(1e-6,device=self.device)
         self.a=torch.tensor(opt.a,device=self.device)
@@ -63,7 +65,42 @@ class SimCLR_Classifier_SCL(nn.Module):
         self.only_classifier=opt.only_classifier
 
         # Initialize DeepSVDD module.
-        self.DeepSVDD = DeepSVDD(objective=opt.objective, in_dim=opt.hidden_dim, out_dim=opt.out_dim, R=opt.R, c=None, nu=opt.nu)
+        
+        self.DeepSVDD = DeepSVDD(
+            objective=opt.objective, 
+            out_dim=opt.out_dim, 
+            R=opt.R, 
+            c=None, 
+            nu=opt.nu, 
+            device=self.fabric.device,
+            base_net=self.model)
+        
+        self.DeepSVDD = self.fabric.setup_module(self.DeepSVDD)
+    
+    def initialize_center_c(self,train_loader, eps=0.1):
+        
+        """Initialize hypersphere center c as the mean from an initial forward pass on the data."""
+        n_samples = 0
+        c = torch.zeros(self.opt.out_dim, device=self.fabric.device)
+        # Compute the mean of the output of the encoder for all training samples.
+        
+        self.model = self.model.to(self.fabric.device)
+        self.model.eval()
+        print('Initializing center c, to device:{}',self.fabric.device)
+        
+        with torch.no_grad():
+            for batch in tqdm(train_loader):
+                encoded_batch,_,_,_ = batch
+                encoded_batch = {k: v.to(self.fabric.device) for k, v in encoded_batch.items()}
+                outputs = self.model(encoded_batch)
+                c += outputs.sum(dim=0)
+                n_samples += outputs.shape[0]
+        c /= n_samples
+        torch.distributed.all_reduce(c, torch.distributed.ReduceOp.SUM)
+        # Normalize to the hypersphere surface.
+        c = c / torch.norm(c)
+        self.DeepSVDD.c = c
+        print('Center c initialized:',c)
 
 
     def get_encoder(self):
@@ -78,18 +115,17 @@ class SimCLR_Classifier_SCL(nn.Module):
             
             return cosine_similarity
         
-        # logits是平滑后的cosine相似度，用于计算loss。温度参数用于控制对相似度分布的平滑程度，温度较低：相似度分布更加尖锐，温度较高：相似度分布更加平滑，增加负样本的影响
         logits=cosine_similarity_matrix(q,k)/self.temperature
 
-        q_labels=q_label.view(-1, 1)# N,1 查询标签形状变为(N,1)
-        k_labels=k_label.view(1, -1)# 1,N+K 候选键标签形状变为(1,N+K)
+        q_labels=q_label.view(-1, 1)# N,1 
+        k_labels=k_label.view(1, -1)# 1,N+K 
 
-        same_label=(q_labels==k_labels)# N,N+K 布尔矩阵，标记查询和键是否属于同一类别。查询标签与候选键标签相同的位置为True，不同的位置为False
+        same_label=(q_labels==k_labels)# N,N+K 
 
         #model:model set
-        pos_logits_model = torch.sum( logits * same_label, dim=1) / torch.max(torch.sum(same_label,dim=1), self.esp) #只保留与查询属于同一类别的键的相似度。对每个查询累加其正样本的相似度。归一化，防止正样本数目为 0 时出现除零。
-        neg_logits_model = logits * torch.logical_not(same_label) # torch.logical_not(same_label)：标记所有负样本的位置。
-        logits_model = torch.cat((pos_logits_model.unsqueeze(1), neg_logits_model), dim=1) #将正样本 logits（形状为 (N, 1)）和负样本 logits（形状为 (N, N+K)）拼接成一个矩阵：形状为 (N, 1 + N+K)。
+        pos_logits_model = torch.sum( logits * same_label, dim=1) / torch.max(torch.sum(same_label,dim=1), self.esp) 
+        neg_logits_model = logits * torch.logical_not(same_label) 
+        logits_model = torch.cat((pos_logits_model.unsqueeze(1), neg_logits_model), dim=1) 
 
         return logits_model
     
@@ -119,11 +155,10 @@ class SimCLR_Classifier_SCL(nn.Module):
         # Compute contrastive logits.
         logits_label = self._compute_logits(q,indices1, indices2,label,k,k_index1,k_index2,k_label)
         
-        # DeepSVDD forward pass and loss computation.
-        out = self.DeepSVDD(q)
-        loss_DeepSVDD = self.DeepSVDD.compute_loss(out)  # Calculate DeepSVDD loss.
+        # Calculate DeepSVDD loss.
+        loss_DeepSVDD = self.DeepSVDD.compute_loss(q)
         
-        # 计算对比学习的loss。 将 logits 传入交叉熵损失函数，通过交叉熵使正样本 logits 更大，负样本 logits 更小。
+        # Compute contrastive loss.
         gt = torch.zeros(bsz, dtype=torch.long,device=logits_label.device)
         if self.only_classifier:
             loss_label = torch.tensor(0,device=self.device)
@@ -131,13 +166,14 @@ class SimCLR_Classifier_SCL(nn.Module):
             loss_label = F.cross_entropy(logits_label, gt)
 
         # Combine both losses with their respective weights.
-        loss = self.a * loss_label+ self.d * loss_DeepSVDD # 混合两个loss
+        loss = self.a * loss_label+ self.d * loss_DeepSVDD 
         if self.training:
             return loss,loss_label,loss_DeepSVDD ,k,k_label
         else:
             # Gather outputs across devices during evaluation.
-            out = self.fabric.all_gather(out).view(-1, out.size(1))
-            return loss, out, k, k_label
+            dist = torch.sum((k - self.DeepSVDD.c) ** 2, dim=1)
+            return loss,dist,k,k_label
+        
 
 class SimCLR_Classifier_test(nn.Module):
     def __init__(self, opt,fabric):
@@ -195,7 +231,6 @@ class SimCLR_Classifier(nn.Module):
         n_samples = 0
         c = torch.zeros(self.opt.out_dim, device=self.fabric.device)
         # Compute the mean of the output of the encoder for all training samples.
-        # move the model to the device before the loop
         
         self.model = self.model.to(self.fabric.device)
         self.model.eval()
@@ -304,7 +339,7 @@ class SimCLR_Classifier(nn.Module):
                 return loss,loss_model,loss_set,loss_label,loss_DeepSVDD,loss_human,k,k_label
         
         else:
-            dist = torch.sum((k - self.c) ** 2, dim=1)
+            dist = torch.sum((k - self.DeepSVDD.c) ** 2, dim=1)
             # out = "placeholder"
             # print(out)
             if self.opt.AA:

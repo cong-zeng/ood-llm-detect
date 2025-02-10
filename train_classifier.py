@@ -118,10 +118,9 @@ def train(opt):
         opt.d=1
         opt.one_loss=True
     
-        # 模型加载,根据one_loss参数选择加载的模型，并切换到训练模式
     
     if opt.one_loss:
-        model = SimCLR_Classifier_SCL(opt,fabric).train()
+        model = SimCLR_Classifier_SCL(opt,fabric)
     else:
         model = SimCLR_Classifier(opt,fabric)
         # assert opt.freeze_layer<=12 and opt.freeze_layer>=0, "freeze_layer should be in [0,12]"
@@ -139,7 +138,7 @@ def train(opt):
         #         else:
         #             param.requires_grad = False
     
-    #设置模型参数冻结，根据freeze_embedding_layer参数选择是否冻结embedding层  
+
     if opt.freeze_embedding_layer:
         for name, param in model.model.named_parameters():
             if 'emb' in name:
@@ -160,7 +159,6 @@ def train(opt):
                 break
         if os.path.exists(os.path.join(opt.savedir,'runs'))==False:
             os.makedirs(os.path.join(opt.savedir,'runs'))
-        # 初始化日志记录器
         writer = SummaryWriter(os.path.join(opt.savedir,'runs'))
         index = Indexer(opt.projection_size)
         #save opt to yaml
@@ -168,7 +166,7 @@ def train(opt):
         with open(os.path.join(opt.savedir,'config.yaml'), 'w') as file:
             yaml.dump(opt_dict, file, sort_keys=False)
 
-    # 设置训练过程的超参数，优化器，学习率调度器
+    # Set up optimizer and scheduler
     num_batches_per_epoch = len(passages_dataloder)
     print("passage: ", len(passages_dataloder))
     print("machine_passages_dataloder: ", len(machine_passages_dataloder))
@@ -275,7 +273,8 @@ def train(opt):
             if fabric.global_rank == 0 :
                 test_embeddings, test_labels, preds_list = [],[], []           
                 pbar = tqdm(pbar, total=len(val_dataloder))
-                print(('\n' + '%11s' *(5)) % ('Epoch', 'GPU_mem', 'Cur_acc', 'avg_acc','loss'))
+                # print(('\n' + '%11s' *(5)) % ('Epoch', 'GPU_mem', 'Cur_acc', 'avg_acc','loss'))
+                print(('\n' + '%11s' *(3)) % ('Epoch', 'GPU_mem', 'loss'))
             
             # 在验证集上评估模型表现，记录预测正确的样本数和总样本数
             # right_num, tot_num = 0,0
