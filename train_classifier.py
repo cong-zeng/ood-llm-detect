@@ -59,7 +59,6 @@ def process_top_ids_and_scores_AA(top_ids_and_scores, label_dict):
     return preds
 
 def collate_fn(batch):
-    # 首先使用default_collate处理大部分情况
     text,label,write_model,write_model_set = default_collate(batch)
     encoded_batch = tokenizer.batch_encode_plus(
         text,
@@ -75,7 +74,7 @@ def get_radius(dist: torch.Tensor, nu: float):
     return np.quantile(np.sqrt(dist.clone().detach().cpu().numpy()), 1 - nu)
 
 def train(opt):
-    # 训练环境设置
+    # Initialize fabric and set up data loaders
     torch.set_float32_matmul_precision("medium")
     if opt.device_num>1:
         ddp_strategy = DDPStrategy(find_unused_parameters=True)
@@ -83,7 +82,7 @@ def train(opt):
     else:
         fabric = Fabric(accelerator="cuda", precision="bf16-mixed", devices=opt.device_num)
     fabric.launch()
-    # 数据集加载，根据指定数据集加载数据类型
+    # load dataset and dataloader
     if opt.dataset=='deepfake':
         dataset = load_deepfake(opt.path)
         machine_passages_dataset = load_deepfake(opt.path, machine_text_only=True)
@@ -118,7 +117,7 @@ def train(opt):
         opt.d=1
         opt.one_loss=True
     
-    
+    # Initialize model
     if opt.one_loss:
         model = SimCLR_Classifier_SCL(opt,fabric)
     else:
@@ -185,17 +184,16 @@ def train(opt):
     max_avg_rec=0
     warm_up_n_epochs = 5  # number of training epochs for soft-boundary Deep SVDD before radius R gets updated
     
-    # 初始化center_c
+    # initialize center_c
     print("Initialize center_c!")
     model.initialize_center_c(machine_passages_dataloder)
 
-    # 训练loop
+    # Training loop
     for epoch in range(opt.total_epoch):
         model.train()
         avg_loss = 0
         pbar = enumerate(passages_dataloder)
 
-        # fabric的barrier同步，确保每个进程在同一时间开始训练
         if fabric.global_rank == 0:
             # print("the model has {} parameters".format(sum(p.numel() for p in model.parameters()))
             # for name, param in model.named_parameters():
@@ -203,7 +201,7 @@ def train(opt):
             #         print(name)
             if opt.one_loss:
                 print("Train with one loss!")
-            # 把index重置，重新添加数据
+            # reset index
             index.reset()
             allembeddings, alllabels= [],[]
             label_dict = {}            
@@ -211,10 +209,10 @@ def train(opt):
             print(('\n' + '%11s' *(5)) % ('Epoch', 'GPU_mem', 'Cur_loss', 'avg_loss','lr'))
 
         for i, batch in pbar:
-            #梯度清零
+            # gradient reset
             optimizer.zero_grad() 
 
-            # warmup学习率调度
+            # learning rate warmup
             current_step = epoch * num_batches_per_epoch + i
             if current_step < warmup_steps:
                 current_lr = lr * current_step / warmup_steps
@@ -222,30 +220,31 @@ def train(opt):
                     param_group['lr'] = current_lr
             current_lr = optimizer.param_groups[0]['lr']
 
-            # 数据加载和模型前向传播
+            # load batch data to GPU
             encoded_batch, label, write_model, write_model_set = batch
             encoded_batch = { k: v.cuda() for k, v in encoded_batch.items()}
 
-            # 模型前向传播，计算损失
+            # forward pass and loss calculation
             if opt.one_loss:
                 loss, loss_label, loss_classfiy, k_out, k_outlabel  = model(encoded_batch, write_model, write_model_set,label)
             else:
                 loss, loss_model, loss_set, loss_label, loss_classfiy, loss_human, k_out, k_outlabel  = model(encoded_batch,write_model,write_model_set,label)
         
-            # 损失反向传播和参数更新
+            # backward pass and optimization
             avg_loss = (avg_loss * i + loss.item()) / (i+1)
             fabric.backward(loss) #分布式反向传播
 
             # fabric.clip_gradients(model, optimizer, max_norm=1.0, norm_type=2)
             optimizer.step() 
 
-            # 学习率调度
+            # When using the soft-boundary objective, update the radius R after warm-up epochs
             if current_step >= warmup_steps:
                 schedule.step()
             if opt.objective == "soft-boundary" and (epoch >= warm_up_n_epochs):
-                loss_classfiy = fabric.all_gather(loss_classfiy).mean()
+                loss_classfiy = fabric.all_gather(loss_classfiy).mean() 
                 model.DeepSVDD.R.data = torch.tensor(get_radius(loss_classfiy, model.DeepSVDD.nu), device=model.device)
-            # 日志记录
+
+            # log
             mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
             if fabric.global_rank == 0:
                 pbar.set_description(
@@ -265,7 +264,7 @@ def train(opt):
                         writer.add_scalar('loss_model_set', loss_set.item(), current_step)
                         writer.add_scalar('loss_human', loss_human.item(), current_step)
         
-        # 验证和指标计算
+        # Validation
         with torch.no_grad():
             test_loss = 0
             model.eval()
@@ -276,7 +275,6 @@ def train(opt):
                 # print(('\n' + '%11s' *(5)) % ('Epoch', 'GPU_mem', 'Cur_acc', 'avg_acc','loss'))
                 print(('\n' + '%11s' *(3)) % ('Epoch', 'GPU_mem', 'loss'))
             
-            # 在验证集上评估模型表现，记录预测正确的样本数和总样本数
             # right_num, tot_num = 0,0
             for i, batch in pbar:
                 encoded_batch, label, write_model, write_model_set = batch
@@ -289,7 +287,6 @@ def train(opt):
 
                 # right_num += cur_right_num 
                 # tot_num += cur_num
-                # 指标计算
                 # test_loss = (test_loss * i + loss.item()) / (i + 1)
                 if opt.objective == 'soft-boundary':
                     out = out - model.DeepSVDD.R ** 2
@@ -307,6 +304,7 @@ def train(opt):
                         ('%11s' * 2 + '%11.4g') % 
                         (f'{epoch + 1}/{opt.total_epoch}', mem, loss.item())
                     )
+            # use roc_auc_score to evaluate the performance 
             if fabric.global_rank == 0 :
                 pred_np = torch.cat(preds_list).view(-1).numpy()
                 label_np = torch.cat(test_labels).view(-1).numpy()
@@ -314,7 +312,7 @@ def train(opt):
                 print(f"Val test auc: {auc}")
         torch.cuda.empty_cache()
         fabric.barrier()
-        # embedding 检索 和 指标计算
+        #Inference: embedding search
         # if opt.only_classifier==False and fabric.global_rank == 0:
         #     print("Add embeddings to index!")
         #     allembeddings = torch.cat(allembeddings, dim=0)

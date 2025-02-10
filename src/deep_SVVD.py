@@ -5,7 +5,7 @@ from src.text_embedding import TextEmbeddingModel
 from tqdm import tqdm
 from lightning import Fabric
 
-# 把classificationHead替换成一个DeepSVDD的网络结构
+
 class DeepSVDD(nn.Module):
     '''Deep SVDD model for anomaly detection.
     '''
@@ -157,6 +157,10 @@ class SimCLR_Classifier_SCL(nn.Module):
         
         # Calculate DeepSVDD loss.
         loss_DeepSVDD = self.DeepSVDD.compute_loss(q)
+
+        # Calculate DeepSVDD loss via machine data sample.
+        machine_txt_idx = (label == 0).view(-1)
+        loss_DeepSVDD = self.DeepSVDD.compute_loss(q[machine_txt_idx])  
         
         # Compute contrastive loss.
         gt = torch.zeros(bsz, dtype=torch.long,device=logits_label.device)
