@@ -314,8 +314,13 @@ class SimCLR_Classifier(nn.Module):
         #k:4N
         logits_model,logits_set,logits_label,logits_human = self._compute_logits(q,indices1, indices2,label,k,k_index1,k_index2,k_label)
         # out = self.DeepSVDD(q)
+        
+        # Calculate DeepSVDD loss via all data sample.
+        # loss_DeepSVDD = self.DeepSVDD.compute_loss(q)  
+
+        # Calculate DeepSVDD loss via machine data sample.
         machine_txt_idx = (label == 0).view(-1)
-        loss_DeepSVDD = self.DeepSVDD.compute_loss(q)  # Calculate DeepSVDD loss.
+        loss_DeepSVDD = self.DeepSVDD.compute_loss(q[machine_txt_idx])  
 
 
         gt_model = torch.zeros(logits_model.size(0), dtype=torch.long,device=logits_model.device)
