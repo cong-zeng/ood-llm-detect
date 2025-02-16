@@ -26,13 +26,11 @@ export CUDA_VISIBLE_DEVICES=0,1
 #     --name OUTFOX-roberta-base --freeze_embedding_layer --database_name train --test_dataset_name test
 
 
+
 # deepfake
 python train_classifier.py --device_num 2 --per_gpu_batch_size 32 --total_epoch 50 --lr 2e-5 --warmup_steps 2000\
     --out_dim 768\
-    --objective soft-boundary\
-    --resum True\
-    --one_loss \
-    --pth_path ckpt/Deepfake_best.pth\
+    --objective one-class\
     --model_name princeton-nlp/unsup-simcse-roberta-base --dataset deepfake --path ${DATA_PATH}/Deepfake/cross_domains_cross_models \
     --name deepfake-roberta-base --freeze_embedding_layer --database_name train --test_dataset_name test
 

@@ -26,13 +26,23 @@ class DeepSVDD(nn.Module):
         x = self.net(x)
         return x
     
-    def compute_loss(self, outputs):
-        dist = torch.sum((outputs - self.c) ** 2, dim=1)
+    def compute_loss(self, outputs, machine_txt_idx, human_txt_idx):
+        machine_outputs = outputs[machine_txt_idx]
+        human_outputs = outputs[human_txt_idx]
+
+        dist_machine = torch.sum((machine_outputs - self.c) ** 2, dim=1)
+        dist_human = torch.sum((human_outputs - self.c) ** 2, dim=1)
+
+        avg_dist_machine = dist_machine.mean()
+        avg_dist_human = dist_human.mean()
+        dist = avg_dist_machine - avg_dist_human
+
+
         if self.objective == 'soft-boundary':
             scores = dist - self.R ** 2
             loss = self.R ** 2 + (1 / self.nu) * torch.mean(torch.max(torch.zeros_like(scores), scores))
         else:
-            loss = torch.mean(dist)
+            loss = dist
         return loss
     
 class SimCLR_Classifier_SCL(nn.Module):
@@ -156,11 +166,12 @@ class SimCLR_Classifier_SCL(nn.Module):
         logits_label = self._compute_logits(q,indices1, indices2,label,k,k_index1,k_index2,k_label)
         
         # Calculate DeepSVDD loss.
-        loss_DeepSVDD = self.DeepSVDD.compute_loss(q)
+        # loss_DeepSVDD = self.DeepSVDD.compute_loss(q)
 
-        # Calculate DeepSVDD loss via machine data sample.
+        # Calculate DeepSVDD loss.
         machine_txt_idx = (label == 0).view(-1)
-        loss_DeepSVDD = self.DeepSVDD.compute_loss(q[machine_txt_idx])  
+        human_txt_idx = (label == 1).view(-1)
+        loss_DeepSVDD = self.DeepSVDD.compute_loss(q, machine_txt_idx, human_txt_idx)  
         
         # Compute contrastive loss.
         gt = torch.zeros(bsz, dtype=torch.long,device=logits_label.device)
@@ -324,7 +335,8 @@ class SimCLR_Classifier(nn.Module):
 
         # Calculate DeepSVDD loss via machine data sample.
         machine_txt_idx = (label == 0).view(-1)
-        loss_DeepSVDD = self.DeepSVDD.compute_loss(q[machine_txt_idx])  
+        human_txt_idx = (label == 1).view(-1)
+        loss_DeepSVDD = self.DeepSVDD.compute_loss(q, machine_txt_idx, human_txt_idx)  
 
 
         gt_model = torch.zeros(logits_model.size(0), dtype=torch.long,device=logits_model.device)
