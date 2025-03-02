@@ -13,7 +13,8 @@ import torch
 from src.dataset import PassagesDataset
 from torch.utils.data import DataLoader
 # from src.simclr import SimCLR_Classifier,SimCLR_Classifier_SCL
-from src.deep_SVVD import SimCLR_Classifier,SimCLR_Classifier_SCL
+# from src.deep_SVVD import SimCLR_Classifier,SimCLR_Classifier_SCL
+from src.hrn import SimCLR_Classifier,SimCLR_Classifier_SCL
 
 from lightning import Fabric
 from torch.utils.tensorboard import SummaryWriter
@@ -179,14 +180,17 @@ def train(opt):
     schedule = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, total_steps, eta_min=lr/10)
     # model, optimizer = fabric.setup(model, optimizer)
     model = fabric.setup_module(model)
-    model.mark_forward_method('initialize_center_c')
+
+    # (DeepSVDD Setting)
+    # model.mark_forward_method('initialize_center_c')
+
     optimizer = fabric.setup_optimizers(optimizer)
     max_avg_rec=0
     warm_up_n_epochs = 5  # number of training epochs for soft-boundary Deep SVDD before radius R gets updated
     
-    # initialize center_c
-    print("Initialize center_c!")
-    model.initialize_center_c(machine_passages_dataloder)
+    #(DeepSVDD Setting) initialize center_c
+    # print("Initialize center_c!")
+    # model.initialize_center_c(machine_passages_dataloder)
 
     # Training loop
     for epoch in range(opt.total_epoch):
@@ -232,7 +236,7 @@ def train(opt):
         
             # backward pass and optimization
             avg_loss = (avg_loss * i + loss.item()) / (i+1)
-            fabric.backward(loss) #分布式反向传播
+            fabric.backward(loss) 
 
             # fabric.clip_gradients(model, optimizer, max_norm=1.0, norm_type=2)
             optimizer.step() 
@@ -240,9 +244,11 @@ def train(opt):
             # When using the soft-boundary objective, update the radius R after warm-up epochs
             if current_step >= warmup_steps:
                 schedule.step()
-            if opt.objective == "soft-boundary" and (epoch >= warm_up_n_epochs):
-                loss_classfiy = fabric.all_gather(loss_classfiy).mean() 
-                model.DeepSVDD.R.data = torch.tensor(get_radius(loss_classfiy, model.DeepSVDD.nu), device=model.device)
+
+            # (DeepSVDD Setting)Update hypersphere radius R on mini-batch distances 
+            # if opt.objective == "soft-boundary" and (epoch >= warm_up_n_epochs):
+            #     loss_classfiy = fabric.all_gather(loss_classfiy).mean() 
+            #     model.DeepSVDD.R.data = torch.tensor(get_radius(loss_classfiy, model.DeepSVDD.nu), device=model.device)
 
             # log
             mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
@@ -288,11 +294,13 @@ def train(opt):
                 # right_num += cur_right_num 
                 # tot_num += cur_num
                 # test_loss = (test_loss * i + loss.item()) / (i + 1)
-                if opt.objective == 'soft-boundary':
-                    out = out - model.DeepSVDD.R ** 2
-                else:
-                    out = out
-
+                
+                # (DeepSVDD Setting)Update hypersphere radius R on mini-batch distances
+                # if opt.objective == 'soft-boundary':
+                #     out = out - model.DeepSVDD.R ** 2
+                # else:
+                #     out = out
+                    
                 mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
                 if fabric.global_rank == 0 :
                     preds_list.append(out.cpu())
@@ -307,6 +315,10 @@ def train(opt):
             # use roc_auc_score to evaluate the performance 
             if fabric.global_rank == 0 :
                 pred_np = torch.cat(preds_list).view(-1).numpy()
+                
+                # (HRN Setting):reverse label
+                pred_np = 1 - pred_np
+
                 label_np = torch.cat(test_labels).view(-1).numpy()
                 auc = roc_auc_score(label_np, pred_np)
                 print(f"Val test auc: {auc}")

@@ -14,3 +14,4 @@ runs/
 *.pth
 database/
 *.png
+dataset_information.ipynb
