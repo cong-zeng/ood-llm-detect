@@ -91,10 +91,13 @@ class SimCLR_Classifier_SCL(nn.Module):
                                    grad_outputs=torch.ones(d_interp.size(), device=x.device),
                                    create_graph=True, retain_graph=True,
                                    only_inputs=True)[0]
-        gradient_penalty = ((grad.norm(2, dim=1) - 1) ** 2).mean()
+        gradient_penalty = ((grad.norm(2, dim=1) - 1) ** 12).mean()
         return gradient_penalty
     
     def forward(self, batch, indices1, indices2,label):
+        # indices1 is model
+        # label 1 is human, 0 is model
+        # indices2 is model and human set 
         bsz = batch['input_ids'].size(0)
         q = self.model(batch)
         k = q.clone().detach()
@@ -104,12 +107,13 @@ class SimCLR_Classifier_SCL(nn.Module):
         k_index2 = self.fabric.all_gather(indices2).view(-1)
         #q:N
         #k:4N
+
         # Contrastive loss 
-        logits_label = self._compute_logits(q,indices1, indices2,label,k,k_index1,k_index2,k_label)
-        gt = torch.zeros(bsz, dtype=torch.long,device=logits_label.device)
         if self.only_classifier:
-            loss_label = torch.tensor(0,device=self.device)
+            loss_label = torch.tensor(0,device=self.device)        
         else:
+            logits_label = self._compute_logits(q,indices1, indices2,label,k,k_index1,k_index2,k_label)
+            gt = torch.zeros(bsz, dtype=torch.long,device=logits_label.device)
             loss_label = F.cross_entropy(logits_label, gt)
 
         # Classifier loss with HRN gradient penalty
