@@ -1,14 +1,17 @@
 from torch.utils.data import Dataset
+import numpy as np
 from utils.Deepfake_utils import deepfake_model_set,deepfake_name_dct
 from utils.Turing_utils import turing_model_set,turing_name_dct
 
 class PassagesDataset(Dataset):
-    def __init__(self, dataset,mode='deepfake',need_ids=False):
+    def __init__(self, dataset, model_set_idx=None, mode='deepfake', need_ids=False):
         self.mode=mode
+        self.model_set_idx=model_set_idx
         self.dataset = dataset
         self.need_ids=need_ids
         self.classes=[]
         self.model_name_set={}
+
         if mode=='deepfake':
             cnt=0
             for model_set_name,model_set in deepfake_name_dct.items():
@@ -31,8 +34,26 @@ class PassagesDataset(Dataset):
                 self.model_name_set[name]=(i,i)
                 self.classes.append(name)
         
-        print(f'there are {len(self.classes)} classes in {mode} dataset')
-        print(f'the classes are {self.classes}')
+        if self.model_set_idx is not None:
+            print(f" -------Loading {mode} dataset for model_set_idx:{self.model_set_idx} -------")
+            self.dataset = []
+            for data in dataset:
+                text,label,src,id = data
+                write_model,write_model_set=1000,1000
+                for name in self.model_name_set.keys():
+                    if name in src:
+                        write_model,write_model_set=self.model_name_set[name]
+                        break
+                assert write_model!=1000,f'write_model is empty,src is {src}'
+                if write_model_set != self.model_set_idx:
+                    continue
+                else:
+                    self.dataset.append(data)
+        else:
+            print(f" -------Loading {mode} dataset, All model_set_idx -------")
+        
+        print(f'Totally, there are {len(self.classes)} classes in {mode} dataset, the classes are {self.classes}')
+        print(f'Loaded, {len(self.dataset)} samples in {mode} dataset for model_set_idx:{self.model_set_idx}')
     
     def get_class(self):
         return self.classes

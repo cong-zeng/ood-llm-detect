@@ -10,12 +10,12 @@ from datasets import load_dataset
 
 # dataset = load_dataset("yaful/DeepfakeTextDetect")
 deepfake_name_dct = {'OpenAI-GPT':['gpt-3.5-trubo','text-davinci-002', 'text-davinci-003'],\
-            'Meta-LLaMA':['13B', '30B', '65B', '7B'],\
             'GLM-130B':['GLM130B'],\
             'Google-FLAN-T5':['flan_t5_base', 'flan_t5_large','flan_t5_small', 'flan_t5_xl', 'flan_t5_xxl'],\
             'Facebook-OPT':['opt_1.3b', 'opt_125m', 'opt_13b', 'opt_2.7b', 'opt_30b', 'opt_350m', 'opt_6.7b', 'opt_iml_30b','opt_iml_max_1.3b'],\
             'BigScience':['bloom_7b','t0_11b', 't0_3b'],\
             'EleutherAI':['gpt_j','gpt_neox'],\
+            'Meta-LLaMA':['13B', '30B', '65B', '7B'],\
             'human':['human']}
 deepfake_model_set ={'OpenAI-GPT':0,'Meta-LLaMA':1,'GLM-130B':2,'Google-FLAN-T5':3,\
             'Facebook-OPT':4,'BigScience':5,'EleutherAI':6,'human':7}
@@ -83,5 +83,5 @@ def load_deepfake(folder_path=None, machine_text_only=False):
     for key in data_new:
         data_new[key] = process_data(data_new[key], machine_text_only=machine_text_only)
     # only use 10% of the data
-        # data_new[key] = process_data(data_new[key][:int(len(data_new[key]) * 0.1)])
+        # data_new[key] = process_data(data_new[key][:int(len(data_new[key]) * 0.5)])
     return data_new
