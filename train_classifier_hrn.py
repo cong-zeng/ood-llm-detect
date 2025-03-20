@@ -112,6 +112,7 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric):
     for epoch in range(opt.total_epoch):
         model.train()
         avg_loss = 0
+        max_auc = 0
         pbar = enumerate(passages_dataloder)
 
         if fabric.global_rank == 0:
@@ -172,13 +173,11 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric):
                 encoded_batch, label, write_model, write_model_set = batch
                 encoded_batch = { k: v.cuda() for k, v in encoded_batch.items()}
                 loss, scores, k_out, k_outlabel = model(encoded_batch, write_model, write_model_set,label)
-                # reverse k_outlabel 0,1 to 1,0
-                k_outlabel = 1 - k_outlabel
                 
                 mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
                 if fabric.global_rank == 0:
-                    pred_list.append(scores.cpu())
-                    test_labels.append(k_outlabel.cpu())
+                    pred_list.append(scores.cpu().detach())
+                    test_labels.append(write_model_set.cpu().detach())
                     pbar.set_description(
                             ('%11s' * 2 + '%11.4g') % 
                             (f'{model_set_idx}', mem, loss.item()))
@@ -186,9 +185,15 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric):
             if fabric.global_rank == 0:
                 pred_np = torch.cat(pred_list).view(-1).numpy()
                 label_np = torch.cat(test_labels).view(-1).numpy()
+                label_np = 1 - (torch.abs(torch.sign(label_np- model_set_idx)))
                 auc = roc_auc_score(label_np, pred_np)
                 print("Val AUC: ", auc)
                 writer.add_scalar('Val_AUC', auc, epoch)
+                if auc > max_auc:
+                    max_auc = auc
+                    torch.save(model.state_dict(), os.path.join(opt.savedir, f"{model_set_name}_best.pth"))
+                print("[Epoch %d/%d/%d]  [loss: %0.2f] [AUC: %0.4f]" %
+                        (epoch + 1, opt.max_epochs, model_set_idx + 1, loss, max_auc))
 
     # Return trained model
     return model, pred_np, auc
@@ -214,49 +219,53 @@ def train(opt):
         models[model_set_idx] = model
     
     # Testing
-    dataset = load_deepfake(opt.path)
-    test_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='deepfake', model_set_idx=None)
-    test_dataloder = DataLoader(test_dataset, batch_size=opt.per_gpu_eval_batch_size,\
-                            num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
-    preds_models = {}
-    for model_set_idx in models.keys():
-        model = models[model_set_idx]
-        with torch.no_grad():
-            model.eval()
-            pbar = enumerate(test_dataloder)
-            if fabric.global_rank == 0:
-                pbar = tqdm(pbar, total = len(test_dataloder))
-                test_labels, pred_list = [], []
-                print(" -------Testing Model Set: {}--Model Set idx: {}-------".format(model_set_name, model_set_idx))
+    # dataset = load_deepfake(opt.path)
+    # test_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='deepfake', model_set_idx=None)
+    # test_dataloder = DataLoader(test_dataset, batch_size=opt.per_gpu_eval_batch_size,\
+    #                         num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
+    # preds_models = {}
+    # for model_set_idx in models.keys():
+    #     model = models[model_set_idx]
+    #     with torch.no_grad():
+    #         model.eval()
+    #         pbar = enumerate(test_dataloder)
+    #         if fabric.global_rank == 0:
+    #             pbar = tqdm(pbar, total = len(test_dataloder))
+    #             test_labels, pred_list, label_machine = [], [], []
+    #             print(" -------Testing Model Set: {}--Model Set idx: {}-------".format(model_set_name, model_set_idx))
 
-            for i, batch in pbar:
-                encoded_batch, label, write_model, write_model_set = batch
-                encoded_batch = { k: v.cuda() for k, v in encoded_batch.items()}
-                loss, scores, k_out, k_outlabel = model(encoded_batch, write_model, write_model_set,label)
-                # reverse k_outlabel 0,1 to 1,0
-                k_outlabel = 1 - k_outlabel
+    #         for i, batch in pbar:
+    #             encoded_batch, label, write_model, write_model_set = batch
+    #             encoded_batch = { k: v.cuda() for k, v in encoded_batch.items()}
+    #             loss, scores, k_out, k_outlabel = model(encoded_batch, write_model, write_model_set,label)
                 
-                mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
-                if fabric.global_rank == 0:
-                    pred_list.append(scores.cpu())
-                    test_labels.append(k_outlabel.cpu())
-                    pbar.set_description(
-                            ('%11s' * 2 + '%11.4g') % 
-                            (f'{model_set_idx}', mem, loss.item()))
+    #             mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
+    #             if fabric.global_rank == 0:
+    #                 pred_list.append(scores.cpu().detach())
+    #                 label_machine.append(k_outlabel.cpu().detach())
+    #                 test_labels.append(write_model_set.cpu().detach())
+    #                 pbar.set_description(
+    #                         ('%11s' * 2 + '%11.4g') % 
+    #                         (f'{model_set_idx}', mem, loss.item()))
          
-            if fabric.global_rank == 0:
-                pred_np = torch.cat(pred_list).view(-1).numpy()
-                label_np = torch.cat(test_labels).view(-1).numpy()
-                auc = roc_auc_score(label_np, pred_np)
-                print("Val AUC: ", auc)
-                preds_models[model_set_idx] = pred_np
+    #         if fabric.global_rank == 0:
+    #             pred_np = torch.cat(pred_list).view(-1).numpy()
+    #             label_np = torch.cat(test_labels).view(-1).numpy()
+    #             label_np = 1 - (torch.abs(torch.sign(label_np- model_set_idx)))
+    #             auc = roc_auc_score(label_np, pred_np)
+    #             print("Val AUC: ", auc)
+    #             preds_models[model_set_idx] = pred_np
+        
+    #     # if model_set_idx == 0:
+    #     #     label_machine = torch.cat(label_machine).view(-1).numpy()
+    #     #     label_machine = 1 - label_machine
 
-    if fabric.global_rank == 0:
-        preds_array = np.stack(list(preds_models.values()), axis=0)
-        final_pred = np.mean(preds_array, axis=0)
-        final_label = label_np
-        auc = roc_auc_score(final_label, final_pred)
-        print("Final Val AUC: ", auc)
+    # if fabric.global_rank == 0:
+    #     preds_array = np.stack(list(preds_models.values()), axis=0)
+    #     final_pred = np.mean(preds_array, axis=0)
+    #     final_label = label_np
+    #     auc = roc_auc_score(final_label, final_pred)
+    #     print("Final Val AUC: ", auc)
     torch.cuda.empty_cache()
     fabric.barrier()
 

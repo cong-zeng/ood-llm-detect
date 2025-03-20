@@ -42,20 +42,14 @@ class PassagesDataset(Dataset):
                 # From data's scr to model_idx model_set_idx 
                 write_model,write_model_set = self._scr_to_model(src)
 
-                # get one class label(inside class:0, outside class:1)
                 if write_model_set != self.model_set_idx:
-                    label_one_class = 1
-                    data = (text,label_one_class,src,id)
-                    if val:
-                        self.dataset.append(data)
+                    continue
                 else:
-                    label_one_class = 0
-                    data = (text,label_one_class,src,id)
                     self.dataset.append(data)
         else:
             print(f" -------Loading {mode} dataset, All model_set_idx, machine label 0, human label 1-------")
             print(f'Totally, there are {len(self.classes)} classes in {mode} dataset, the classes are {self.classes}')
-        print(f' -------Loaded, {len(self.dataset)} samples -------')
+        print(f' -------Loaded {len(self.dataset)} samples -------')
     
     def get_class(self):
         return self.classes
