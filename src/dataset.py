@@ -35,7 +35,7 @@ class PassagesDataset(Dataset):
                 self.classes.append(name)
         
         if self.model_set_idx is not None:
-            print(f" -------Loading {mode} dataset for model_set_idx:{self.model_set_idx} val:{val}-------")
+            print(f" -------Loading {mode} dataset for model_set_idx:{self.model_set_idx} -------")
             self.dataset = []
             for data in dataset:
                 text,label,src,id = data
@@ -48,7 +48,7 @@ class PassagesDataset(Dataset):
                     self.dataset.append(data)
         else:
             print(f" -------Loading {mode} dataset, All model_set_idx, machine label 0, human label 1-------")
-            print(f'Totally, there are {len(self.classes)} classes in {mode} dataset, the classes are {self.classes}')
+        # print(f'Totally, there are {len(self.classes)} classes in {mode} dataset, the classes are {self.classes}')
         print(f' -------Loaded {len(self.dataset)} samples -------')
     
     def get_class(self):

@@ -55,7 +55,7 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric):
                                      num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
     # Load validation data
     dataset = load_deepfake(opt.path)
-    val_dataset = PassagesDataset(dataset[opt.valid_dataset_name], val=True, mode='deepfake', model_set_idx=model_set_idx)
+    val_dataset = PassagesDataset(dataset[opt.valid_dataset_name], val=True, mode='deepfake', model_set_idx=None)
     val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
                             num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
 
@@ -183,8 +183,8 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric):
                             (f'{model_set_idx}', mem, loss.item()))
          
             if fabric.global_rank == 0:
-                pred_np = torch.cat(pred_list).view(-1).numpy()
-                label_np = torch.cat(test_labels).view(-1).numpy()
+                pred_np = torch.cat(pred_list).view(-1)
+                label_np = torch.cat(test_labels).view(-1)
                 label_np = 1 - (torch.abs(torch.sign(label_np- model_set_idx)))
                 auc = roc_auc_score(label_np, pred_np)
                 print("Val AUC: ", auc)
@@ -193,7 +193,7 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric):
                     max_auc = auc
                     torch.save(model.state_dict(), os.path.join(opt.savedir, f"{model_set_name}_best.pth"))
                 print("[Epoch %d/%d/%d]  [loss: %0.2f] [AUC: %0.4f]" %
-                        (epoch + 1, opt.max_epochs, model_set_idx + 1, loss, max_auc))
+                        (epoch + 1, opt.total_epoch, model_set_idx + 1, loss, max_auc))
 
     # Return trained model
     return model, pred_np, auc
