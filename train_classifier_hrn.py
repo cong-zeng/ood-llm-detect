@@ -14,7 +14,7 @@ from src.dataset import PassagesDataset
 from torch.utils.data import DataLoader
 # from src.simclr import SimCLR_Classifier,SimCLR_Classifier_SCL
 # from src.deep_SVVD import SimCLR_Classifier,SimCLR_Classifier_SCL
-from src.hrn import SimCLR_Classifier,SimCLR_Classifier_SCL
+from src.hrn import SimCLR_Classifier_SCL
 
 from lightning import Fabric
 from torch.utils.tensorboard import SummaryWriter
@@ -30,6 +30,9 @@ from sklearn.metrics import roc_auc_score
 
 from utils.Deepfake_utils import deepfake_model_set,deepfake_name_dct
 
+torch.random.manual_seed(42)
+np.random.seed(42)
+
 def collate_fn(batch):
     text,label,write_model,write_model_set = default_collate(batch)
     encoded_batch = tokenizer.batch_encode_plus(
@@ -41,17 +44,20 @@ def collate_fn(batch):
         )
     return encoded_batch,label,write_model,write_model_set
 
-
 def train_single_classifier(model_set_idx, model_set_name, opt, fabric):
     # Load training data by model set
     dataset = load_deepfake(opt.path)
 
     passages_dataset = PassagesDataset(dataset[opt.database_name],mode='deepfake', model_set_idx=model_set_idx)
 
-   
     # Set up data loaders for training and validation
     passages_dataloder = DataLoader(passages_dataset, batch_size=opt.per_gpu_batch_size,\
                                      num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
+    # Load validation data
+    dataset = load_deepfake(opt.path)
+    val_dataset = PassagesDataset(dataset[opt.valid_dataset_name], val=True, mode='deepfake', model_set_idx=model_set_idx)
+    val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
+                            num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
 
     if opt.only_classifier:
         opt.a=opt.b=opt.c=0
@@ -63,8 +69,9 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric):
 
     if opt.freeze_embedding_layer:
         for name, param in model.model.named_parameters():
-            if 'emb' in name:
-                param.requires_grad=False
+            param.requires_grad=False
+            # if 'emb' in name:
+                # param.requires_grad=False
                 
     if opt.d==0:
         for name, param in model.named_parameters():
@@ -73,6 +80,7 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric):
 
     passages_dataloder= fabric.setup_dataloaders(passages_dataloder)
     
+    # Set up tensorboard writer and save directory
     if fabric.global_rank == 0 :
         for num in range(10000):
             if os.path.exists(os.path.join(opt.savedir,'{}_v{}'.format(opt.name,num)))==False:
@@ -150,45 +158,15 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric):
                     writer.add_scalar('avg_loss', avg_loss, current_step)
                     writer.add_scalar('loss_label', loss_label.item(), current_step)
                     writer.add_scalar('loss_classfiy', loss_classfiy.item(), current_step)
-            
-    # Return trained model
-    return model
-
-def train(opt):
-    # Initialize fabric and set up data loaders
-    torch.set_float32_matmul_precision("medium")
-    if opt.device_num>1:
-        ddp_strategy = DDPStrategy(find_unused_parameters=True)
-        fabric = Fabric(accelerator="cuda", precision="bf16-mixed", devices=opt.device_num,strategy=ddp_strategy)#
-    else:
-        fabric = Fabric(accelerator="cuda", precision="bf16-mixed", devices=opt.device_num)
-    fabric.launch()
         
-    # Load validation data
-    dataset = load_deepfake(opt.path)
-    val_dataset = PassagesDataset(dataset[opt.test_dataset_name],mode='deepfake', model_set_idx=None)
-    val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
-                            num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
-    val_dataloder = fabric.setup_dataloaders(val_dataloder)
-
-    # Train model for each model set
-    num_models = len(deepfake_model_set) - 1
-    preds_models = {}
-
-    for model_set_idx in range(num_models):
-        model_set_name = list(deepfake_model_set.keys())[model_set_idx]
-        print("Start Training Model Set: ", model_set_name)
-        model = train_single_classifier(model_set_idx, model_set_name, opt, fabric)
-
-        
+        #Validation
         with torch.no_grad():
-
             model.eval()
             pbar = enumerate(val_dataloder)
             if fabric.global_rank == 0:
                 pbar = tqdm(pbar, total = len(val_dataloder))
                 test_labels, pred_list = [], []
-                print(" -------Evaluating Model Set: {}--Model Set idx: {}-------".format(model_set_name, model_set_idx))
+                print(" -------Validation Model Set: {}--Model Set idx: {}-------".format(model_set_name, model_set_idx))
 
             for i, batch in pbar:
                 encoded_batch, label, write_model, write_model_set = batch
@@ -204,21 +182,81 @@ def train(opt):
                     pbar.set_description(
                             ('%11s' * 2 + '%11.4g') % 
                             (f'{model_set_idx}', mem, loss.item()))
+         
             if fabric.global_rank == 0:
                 pred_np = torch.cat(pred_list).view(-1).numpy()
-                if model_set_idx == 0:
-                    label_np = torch.cat(test_labels).view(-1).numpy()
-                preds_models[model_set_idx] = pred_np
+                label_np = torch.cat(test_labels).view(-1).numpy()
                 auc = roc_auc_score(label_np, pred_np)
                 print("Val AUC: ", auc)
+                writer.add_scalar('Val_AUC', auc, epoch)
 
-    # Calculate metrics final prediction score is the average for every model set
+    # Return trained model
+    return model, pred_np, auc
+
+def train(opt):
+    # Initialize fabric and set up data loaders
+    torch.set_float32_matmul_precision("medium")
+    if opt.device_num>1:
+        ddp_strategy = DDPStrategy(find_unused_parameters=True)
+        fabric = Fabric(accelerator="cuda", precision="bf16-mixed", devices=opt.device_num,strategy=ddp_strategy)#
+    else:
+        fabric = Fabric(accelerator="cuda", precision="bf16-mixed", devices=opt.device_num)
+    fabric.launch()
+        
+    # Train model for each model set
+    num_models = len(deepfake_model_set) - 1
+    models = {}
+
+    for model_set_idx in range(num_models):
+        model_set_name = list(deepfake_model_set.keys())[model_set_idx]
+        print("Start Training Model Set: ", model_set_name)
+        model, pred_np, auc = train_single_classifier(model_set_idx, model_set_name, opt, fabric)
+        models[model_set_idx] = model
+    
+    # Testing
+    dataset = load_deepfake(opt.path)
+    test_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='deepfake', model_set_idx=None)
+    test_dataloder = DataLoader(test_dataset, batch_size=opt.per_gpu_eval_batch_size,\
+                            num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
+    preds_models = {}
+    for model_set_idx in models.keys():
+        model = models[model_set_idx]
+        with torch.no_grad():
+            model.eval()
+            pbar = enumerate(test_dataloder)
+            if fabric.global_rank == 0:
+                pbar = tqdm(pbar, total = len(test_dataloder))
+                test_labels, pred_list = [], []
+                print(" -------Testing Model Set: {}--Model Set idx: {}-------".format(model_set_name, model_set_idx))
+
+            for i, batch in pbar:
+                encoded_batch, label, write_model, write_model_set = batch
+                encoded_batch = { k: v.cuda() for k, v in encoded_batch.items()}
+                loss, scores, k_out, k_outlabel = model(encoded_batch, write_model, write_model_set,label)
+                # reverse k_outlabel 0,1 to 1,0
+                k_outlabel = 1 - k_outlabel
+                
+                mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
+                if fabric.global_rank == 0:
+                    pred_list.append(scores.cpu())
+                    test_labels.append(k_outlabel.cpu())
+                    pbar.set_description(
+                            ('%11s' * 2 + '%11.4g') % 
+                            (f'{model_set_idx}', mem, loss.item()))
+         
+            if fabric.global_rank == 0:
+                pred_np = torch.cat(pred_list).view(-1).numpy()
+                label_np = torch.cat(test_labels).view(-1).numpy()
+                auc = roc_auc_score(label_np, pred_np)
+                print("Val AUC: ", auc)
+                preds_models[model_set_idx] = pred_np
+
     if fabric.global_rank == 0:
         preds_array = np.stack(list(preds_models.values()), axis=0)
         final_pred = np.mean(preds_array, axis=0)
         final_label = label_np
         auc = roc_auc_score(final_label, final_pred)
-        print("Val AUC: ", auc)
+        print("Final Val AUC: ", auc)
     torch.cuda.empty_cache()
     fabric.barrier()
 
@@ -243,6 +281,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", type=str, default="deepfake", help="deepfake,OUTFOX,TuringBench,M4")
     parser.add_argument("--path", type=str, default="/home/heyongxin/LLM_detect_data/Deepfake_dataset/cross_domains_cross_models")
     parser.add_argument('--database_name', type=str, default='train', help="train,valid,test,test_ood")
+    parser.add_argument('--valid_dataset_name', type=str, default='valid', help="train,valid,test,test_ood")
     parser.add_argument('--test_dataset_name', type=str, default='test', help="train,valid,test,test_ood")
     parser.add_argument('--topk', type=int, default=10, help="Search topk nearest neighbors for validation")
 
