@@ -25,7 +25,7 @@
 #     --name OUTFOX-roberta-base --freeze_embedding_layer --database_name train --test_dataset_name test
 
 DATA_PATH="data"
-export CUDA_VISIBLE_DEVICES=0,1
+export CUDA_VISIBLE_DEVICES=0
 
 # DeepSVDD
 # deepfake
@@ -44,7 +44,7 @@ export CUDA_VISIBLE_DEVICES=0,1
 
 # HRN
 # deepfake
-python train_classifier_hrn.py --device_num 1 --per_gpu_batch_size 32 --total_epoch 2 --lr 2e-5 --warmup_steps 2000\
+python train_classifier_hrn.py --device_num 1 --per_gpu_batch_size 32 --total_epoch 5 --lr 2e-5 --warmup_steps 2000\
     --classifier_dim 1\
     --one_loss\
     --only_classifier\

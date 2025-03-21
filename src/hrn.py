@@ -119,7 +119,6 @@ class SimCLR_Classifier_SCL(nn.Module):
         # Classifier loss with HRN gradient penalty
         if self.training:
             machine_txt_idx = (label == 0).view(-1)
-            human_txt_idx = (label == 1).view(-1)
             q_machine = q[machine_txt_idx]
             out = self.classifier(q_machine).squeeze(-1)
             mainloss_p = torch.log(torch.sigmoid(out) + self.esp).mean()
@@ -141,20 +140,3 @@ class SimCLR_Classifier_SCL(nn.Module):
         else:
             scores = torch.sigmoid(out)
             return loss,scores,k,k_label
-
-class SimCLR_Classifier(nn.Module):
-    def __init__(self, opt,fabric):
-        super(SimCLR_Classifier, self).__init__()
-
-        self.temperature = opt.temperature
-        self.opt=opt
-        self.fabric = fabric
-
-        self.model = TextEmbeddingModel(opt.model_name)
-        self.classifier = ClassificationHead(opt.projection_size, opt.classifier_dim)
-        self.device=self.model.model.device
-    
-    def forward(self, batch):
-        q = self.model(batch)
-        out = self.classifier(q)
-        return out
