@@ -24,8 +24,8 @@
 #     --model_name princeton-nlp/unsup-simcse-roberta-base --dataset OUTFOX --path ${DATA_PATH}/OUTFOX \
 #     --name OUTFOX-roberta-base --freeze_embedding_layer --database_name train --test_dataset_name test
 
-DATA_PATH="data"
-export CUDA_VISIBLE_DEVICES=0,1
+DATA_PATH="/home/zc/DeTeCtive/data"
+export CUDA_VISIBLE_DEVICES=1
 
 # DeepSVDD
 # deepfake
@@ -44,8 +44,18 @@ export CUDA_VISIBLE_DEVICES=0,1
 
 # HRN
 # deepfake
-python train_classifier.py --device_num 2 --per_gpu_batch_size 32 --total_epoch 50 --lr 2e-5 --warmup_steps 2000\
+# python train_classifier.py --device_num 2 --per_gpu_batch_size 32 --total_epoch 50 --lr 2e-5 --warmup_steps 2000\
+#     --classifier_dim 1\
+#     --one_loss\
+#     --model_name princeton-nlp/unsup-simcse-roberta-base --dataset deepfake --path ${DATA_PATH}/Deepfake/cross_domains_cross_models \
+#     --name deepfake-roberta-base --freeze_embedding_layer --database_name train --test_dataset_name test
+
+# DAGMM
+# deepfake
+export TORCH_USE_CUDA_DSA=1
+CUDA_LAUNCH_BLOCKING=1 python train_classifier.py --device_num 1 --per_gpu_batch_size 128 --total_epoch 50 --lr 2e-5 --warmup_steps 2000\
     --classifier_dim 1\
-    --one_loss\
     --model_name princeton-nlp/unsup-simcse-roberta-base --dataset deepfake --path ${DATA_PATH}/Deepfake/cross_domains_cross_models \
-    --name deepfake-roberta-base --freeze_embedding_layer --database_name train --test_dataset_name test
+    --name deepfake-roberta-base --freeze_embedding_layer --database_name train --test_dataset_name test\
+    # --resum True\
+    # --pth_path /home/zc/DeTeCtive/ckpt/Deepfake_best.pth\

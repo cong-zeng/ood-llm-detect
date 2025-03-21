@@ -14,7 +14,8 @@ from src.dataset import PassagesDataset
 from torch.utils.data import DataLoader
 # from src.simclr import SimCLR_Classifier,SimCLR_Classifier_SCL
 # from src.deep_SVVD import SimCLR_Classifier,SimCLR_Classifier_SCL
-from src.hrn import SimCLR_Classifier,SimCLR_Classifier_SCL
+# from src.hrn import SimCLR_Classifier,SimCLR_Classifier_SCL
+from src.dagmm import SimCLR_Classifier,SimCLR_Classifier_SCL
 
 from lightning import Fabric
 from torch.utils.tensorboard import SummaryWriter
@@ -141,6 +142,7 @@ def train(opt):
 
     if opt.freeze_embedding_layer:
         for name, param in model.model.named_parameters():
+            # print(name)
             if 'emb' in name:
                 param.requires_grad=False
                 
@@ -211,7 +213,7 @@ def train(opt):
             label_dict = {}            
             pbar = tqdm(pbar, total = len(passages_dataloder))
             print(('\n' + '%11s' *(5)) % ('Epoch', 'GPU_mem', 'Cur_loss', 'avg_loss','lr'))
-
+        train_energy_list = []
         for i, batch in pbar:
             # gradient reset
             optimizer.zero_grad() 
@@ -233,7 +235,7 @@ def train(opt):
                 loss, loss_label, loss_classfiy, k_out, k_outlabel  = model(encoded_batch, write_model, write_model_set,label)
             else:
                 loss, loss_model, loss_set, loss_label, loss_classfiy, loss_human, k_out, k_outlabel  = model(encoded_batch,write_model,write_model_set,label)
-        
+            # train_energy_list.append(train_energy)
             # backward pass and optimization
             avg_loss = (avg_loss * i + loss.item()) / (i+1)
             fabric.backward(loss) 
@@ -255,7 +257,7 @@ def train(opt):
             if fabric.global_rank == 0:
                 pbar.set_description(
                     ('%11s' * 2 + '%11.4g' * 3) %
-                    (f'{epoch + 1}/{opt.total_epoch}', mem, loss.item(),avg_loss, current_lr)
+                    (f'{epoch + 1}/{opt.total_epoch}', mem, loss.item(), avg_loss, current_lr)
                 )
                 allembeddings.append(k_out.cpu())
                 alllabels.extend(k_outlabel.cpu().tolist())            
@@ -264,7 +266,7 @@ def train(opt):
                     writer.add_scalar('loss', loss.item(), current_step)
                     writer.add_scalar('avg_loss', avg_loss, current_step)
                     writer.add_scalar('loss_label', loss_label.item(), current_step)
-                    writer.add_scalar('loss_classfiy', loss_classfiy.item(), current_step)
+                    # writer.add_scalar('loss_classfiy', loss_classfiy, current_step)
                     if opt.one_loss==False:
                         writer.add_scalar('loss_model', loss_model.item(), current_step)
                         writer.add_scalar('loss_model_set', loss_set.item(), current_step)
@@ -279,7 +281,7 @@ def train(opt):
                 test_embeddings, test_labels, preds_list = [],[], []           
                 pbar = tqdm(pbar, total=len(val_dataloder))
                 # print(('\n' + '%11s' *(5)) % ('Epoch', 'GPU_mem', 'Cur_acc', 'avg_acc','loss'))
-                print(('\n' + '%11s' *(3)) % ('Epoch', 'GPU_mem', 'loss'))
+                print(('\n' + '%11s' *(3)) % ('Epoch', 'GPU_mem', 'Energy'))
             
             # right_num, tot_num = 0,0
             for i, batch in pbar:
@@ -310,16 +312,25 @@ def train(opt):
                         # ('%11s' * 2 + '%11.4g' * 3) %
                         # (f'{epoch + 1}/{opt.total_epoch}', mem, cur_right_num/cur_num, right_num/tot_num,loss.item())
                         ('%11s' * 2 + '%11.4g') % 
-                        (f'{epoch + 1}/{opt.total_epoch}', mem, loss.item())
+                        (f'{epoch + 1}/{opt.total_epoch}', mem, 0.0)
                     )
             # use roc_auc_score to evaluate the performance 
             if fabric.global_rank == 0 :
                 pred_np = torch.cat(preds_list).view(-1).numpy()
-                
-                # (HRN Setting):reverse label
-                pred_np = 1 - pred_np
-
+                thresh = np.percentile(pred_np, 100 - 50)
+                print("Threshold :", thresh)
+                pred_np = (pred_np > thresh).astype(int)
                 label_np = torch.cat(test_labels).view(-1).numpy()
+                
+                # (HRN Setting):reverse label, not apply in DAGMM
+                # pred_np = 1 - pred_np
+                from sklearn.metrics import precision_recall_fscore_support as prf, accuracy_score
+                
+                accuracy = accuracy_score(label_np,pred_np)
+                precision, recall, f_score, support = prf(label_np, pred_np, average='binary')
+
+                print("Accuracy : {:0.4f}, Precision : {:0.4f}, Recall : {:0.4f}, F-score : {:0.4f}".format(accuracy, precision, recall, f_score))
+
                 auc = roc_auc_score(label_np, pred_np)
                 print(f"Val test auc: {auc}")
         torch.cuda.empty_cache()
@@ -450,6 +461,9 @@ if __name__ == "__main__":
     parser.add_argument("--freeze_embedding_layer",action='store_true',help="freeze embedding layer")
     parser.add_argument("--one_loss",action='store_true',help="only use single contrastive loss")
     parser.add_argument("--only_classifier", action='store_true',help="only use classifier, no contrastive loss")
+
+    parser.add_argument("--lambda_energy", type=float, default=0.1, help="lambda_energy")
+    parser.add_argument("--lambda_cov_diag", type=float, default=0.005, help="lambda_energy")
     opt = parser.parse_args()
     tokenizer = AutoTokenizer.from_pretrained(opt.model_name)
     train(opt)
