@@ -44,7 +44,7 @@ def collate_fn(batch):
         )
     return encoded_batch,label,write_model,write_model_set
 
-def train_single_classifier(model_set_idx, model_set_name, opt, fabric):
+def train_single_classifier(model_set_idx, model_set_name, opt, fabric: Fabric):
     # Load training data by model set
     dataset = load_deepfake(opt.path)
 
@@ -80,21 +80,7 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric):
 
     passages_dataloder= fabric.setup_dataloaders(passages_dataloder)
     
-    # Set up tensorboard writer and save directory
-    if fabric.global_rank == 0 :
-        for num in range(10000):
-            if os.path.exists(os.path.join(opt.savedir,'{}_v{}'.format(opt.name,num)))==False:
-                opt.savedir=os.path.join(opt.savedir,'{}_v{}'.format(opt.name,num))
-                os.makedirs(opt.savedir)
-                break
-        if os.path.exists(os.path.join(opt.savedir,'runs'))==False:
-            os.makedirs(os.path.join(opt.savedir,'runs'))
-        writer = SummaryWriter(os.path.join(opt.savedir,'runs'))
-        #save opt to yaml
-        opt_dict = vars(opt)
-        with open(os.path.join(opt.savedir,'config.yaml'), 'w') as file:
-            yaml.dump(opt_dict, file, sort_keys=False)
-
+    writer = SummaryWriter(os.path.join(opt.savedir,'runs'))
     # Set up optimizer and scheduler
     num_batches_per_epoch = len(passages_dataloder)
     print("num_batches_per_epoch, passage: ", len(passages_dataloder))
@@ -109,10 +95,10 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric):
     optimizer = fabric.setup_optimizers(optimizer)
 
     # Training loop
+    max_auc = 0
     for epoch in range(opt.total_epoch):
         model.train()
         avg_loss = 0
-        max_auc = 0
         pbar = enumerate(passages_dataloder)
 
         if fabric.global_rank == 0:
@@ -154,6 +140,7 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric):
                     ('%11s' * 2 + '%11.4g' * 3) %
                     (f'{epoch + 1}/{opt.total_epoch}', mem, loss.item(),avg_loss, current_lr))
                 if current_step%10==0:
+                    writer.add_scalar('model_set_idx', model_set_idx, current_step)
                     writer.add_scalar('lr', current_lr, current_step)
                     writer.add_scalar('loss', loss.item(), current_step)
                     writer.add_scalar('avg_loss', avg_loss, current_step)
@@ -161,44 +148,49 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric):
                     writer.add_scalar('loss_classfiy', loss_classfiy.item(), current_step)
         
         #Validation
-        if (epoch+1) % 5 == 0:
-            with torch.no_grad():
-                model.eval()
-                pbar = enumerate(val_dataloder)
-                if fabric.global_rank == 0:
-                    pbar = tqdm(pbar, total = len(val_dataloder))
-                    test_labels, pred_list = [], []
-                    print(" -------Validation Model Set: {}--Model Set idx: {}-------".format(model_set_name, model_set_idx))
+        with torch.no_grad():
+            model.eval()
+            pbar = enumerate(val_dataloder)
+            if fabric.global_rank == 0:
+                pbar = tqdm(pbar, total = len(val_dataloder))
+                test_labels, pred_list = [], []
+                print(" -------Validation Model Set: {}--Model Set idx: {}-------".format(model_set_name, model_set_idx))
 
-                for i, batch in pbar:
-                    encoded_batch, label, write_model, write_model_set = batch
-                    encoded_batch = { k: v.cuda() for k, v in encoded_batch.items()}
-                    loss, scores, k_out, k_outlabel = model(encoded_batch, write_model, write_model_set,label)
-                    
-                    mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
-                    if fabric.global_rank == 0:
-                        pred_list.append(scores.cpu().detach())
-                        test_labels.append(write_model_set.cpu().detach())
-                        pbar.set_description(
-                                ('%11s' * 2 + '%11.4g') % 
-                                (f'{model_set_idx}', mem, loss.item()))
-            
+            for i, batch in pbar:
+                encoded_batch, label, write_model, write_model_set = batch
+                encoded_batch = { k: v.cuda() for k, v in encoded_batch.items()}
+                loss, scores, k_out, k_outlabel = model(encoded_batch, write_model, write_model_set,label)
+                
+                mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
                 if fabric.global_rank == 0:
-                    pred_np = torch.cat(pred_list).view(-1)
-                    label_np = torch.cat(test_labels).view(-1)
-                    label_np = 1 - (torch.abs(torch.sign(label_np- model_set_idx)))
-                    auc = roc_auc_score(label_np, pred_np)
-                    print("Val AUC: ", auc)
-                    writer.add_scalar('Val_AUC', auc, epoch)
-                    if auc > max_auc:
-                        max_auc = auc
-                        torch.save(model.state_dict(), os.path.join(opt.savedir, f"{model_set_name}_best.pth"))
-                    print("[Epoch %d/%d/%d]  [loss: %0.2f] [AUC: %0.4f]" %
-                            (epoch + 1, opt.total_epoch, model_set_idx + 1, loss, max_auc))
+                    pred_list.append(scores.cpu().detach())
+                    test_labels.append(write_model_set.cpu().detach())
+                    pbar.set_description(
+                            ('%11s' * 2 + '%11.4g') % 
+                            (f'{model_set_idx}', mem, loss.item()))
+        
+            if fabric.global_rank == 0:
+                pred_np = torch.cat(pred_list).view(-1)
+                label_np = torch.cat(test_labels).view(-1)
+                label_np = 1 - (torch.abs(torch.sign(label_np- model_set_idx)))
+                auc = roc_auc_score(label_np, pred_np)
+                print("Val AUC: ", auc)
+                writer.add_scalar('Val_AUC', auc, epoch)
+                if auc > max_auc:
+                    max_auc = auc
+                    torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_{model_set_name}_best.pth"))
+                    print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_{model_set_name}_best.pth")) 
+                writer.add_scalar('max_AUC', max_auc, epoch)
+                print("[Epoch %d/%d/%d]  [loss: %0.2f] [MaxAUC: %0.4f]" %
+                        (epoch + 1, opt.total_epoch, model_set_idx + 1, loss, max_auc))
+        torch.cuda.empty_cache()
+        fabric.barrier()
 
-    # Return trained model
-    # return model, pred_np, max_auc
-    return model, None, max_auc
+    # Return best model and best AUC
+    best_model = SimCLR_Classifier_SCL(opt,fabric)
+    best_model.load_state_dict(torch.load(os.path.join(opt.savedir, f"model_classifier_{model_set_name}_best.pth")))
+    best_model = fabric.setup_module(model)
+    return best_model, None, max_auc
 
 def train(opt):
     # Initialize fabric and set up data loaders
@@ -209,7 +201,23 @@ def train(opt):
     else:
         fabric = Fabric(accelerator="cuda", precision="bf16-mixed", devices=opt.device_num)
     fabric.launch()
+    
+    # Set up tensorboard writer and save directory
+
+    if (not opt.skip_train) and fabric.global_rank == 0 :
+        for num in range(10000):
+            if os.path.exists(os.path.join(opt.savedir,'{}_v{}'.format(opt.name,num)))==False:
+                opt.savedir=os.path.join(opt.savedir,'{}_v{}'.format(opt.name,num))
+                os.makedirs(opt.savedir)
+                break
+        if os.path.exists(os.path.join(opt.savedir,'runs'))==False:
+            os.makedirs(os.path.join(opt.savedir,'runs'))
         
+        #save opt to yaml
+        opt_dict = vars(opt)
+        with open(os.path.join(opt.savedir,'config.yaml'), 'w') as file:
+            yaml.dump(opt_dict, file, sort_keys=False)
+
     # Train model for each model set
     num_models = len(deepfake_model_set) - 1
     models = {}
@@ -217,7 +225,17 @@ def train(opt):
     for model_set_idx in range(num_models):
         model_set_name = list(deepfake_model_set.keys())[model_set_idx]
         print("Start Training Model Set: ", model_set_name)
-        model, pred_np, auc = train_single_classifier(model_set_idx, model_set_name, opt, fabric)
+
+        if opt.skip_train:
+            print(f"Skipping training. Loading pre-trained model for {model_set_name}")
+            model = SimCLR_Classifier_SCL(opt,fabric)
+            model_path = os.path.join(opt.savedir, f"model_classifier_{model_set_name}_best.pth")
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"Model file not found: {model_path}")
+            model.load_state_dict(torch.load(model_path))
+            model = fabric.setup_module(model)
+        else:
+            model, pred_np, auc = train_single_classifier(model_set_idx, model_set_name, opt, fabric)
         models[model_set_idx] = model
     
     # Testing
@@ -226,15 +244,12 @@ def train(opt):
     test_dataloder = DataLoader(test_dataset, batch_size=opt.per_gpu_eval_batch_size,\
                             num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
     preds_models = {}
-    # for model_set_idx in models.keys():
-    #     model = models[model_set_idx]
+
     with torch.no_grad():
-        # model.eval()
         pbar = enumerate(test_dataloder)
         if fabric.global_rank == 0:
             pbar = tqdm(pbar, total = len(test_dataloder))
             test_labels, pred_list, label_machine = [], [], []
-            # print(" -------Testing Model Set: {}--Model Set idx: {}-------".format(model_set_name, model_set_idx))
 
         for i, batch in pbar:
             scores = 0
@@ -264,20 +279,8 @@ def train(opt):
             print("Test AUC: ", auc)
             preds_models[model_set_idx] = pred_np
     
-            # if model_set_idx == 0:
-            #     label_machine = torch.cat(label_machine).view(-1).numpy()
-            #     label_machine = 1 - label_machine
-
-    # if fabric.global_rank == 0:
-    #     preds_array = np.stack(list(preds_models.values()), axis=0)
-    #     final_pred = np.mean(preds_array, axis=0)
-    #     final_label = label_machine
-    #     auc = roc_auc_score(final_label, final_pred)
-    #     print("Final Val AUC: ", auc)
     torch.cuda.empty_cache()
     fabric.barrier()
-
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -322,6 +325,8 @@ if __name__ == "__main__":
 
     parser.add_argument("--resum", type=bool, default=False)
     parser.add_argument("--pth_path", type=str, default='', help="resume embedding model path")
+    
+    parser.add_argument("--skip_train", action='store_true', help="Skip training and load pre-trained models.")
 
     #google/flan-t5-base 768
     #mixedbread-ai/mxbai-embed-large-v1 1024
