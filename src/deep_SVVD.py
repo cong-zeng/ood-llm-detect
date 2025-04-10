@@ -89,7 +89,7 @@ class SimCLR_Classifier_SCL(nn.Module):
     
     def initialize_center_c(self,train_loader, eps=0.1):
         
-        """Initialize hypersphere center c as the mean from an initial forward pass on the data."""
+        """Initialize hypersphere center c as the mean from an initial forward pass on the machine data."""
         n_samples = 0
         c = torch.zeros(self.opt.out_dim, device=self.fabric.device)
         # Compute the mean of the output of the encoder for all training samples.
@@ -203,6 +203,8 @@ class SimCLR_Classifier_test(nn.Module):
         q = self.model(batch)
         out = self.DeepSVDD(q)
         return out
+
+
 
 class SimCLR_Classifier(nn.Module):
     def __init__(self, opt, fabric):
