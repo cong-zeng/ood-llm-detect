@@ -86,14 +86,19 @@ def train(opt):
     # load dataset and dataloader
     if opt.dataset=='deepfake':
         dataset = load_deepfake(opt.path)
-        machine_passages_dataset = load_deepfake(opt.path, machine_text_only=True)
+        machine_dataset = load_deepfake(opt.path, machine_text_only=True)
         passages_dataset = PassagesDataset(dataset[opt.database_name],mode='deepfake')
-        machine_passages_dataset = PassagesDataset(machine_passages_dataset[opt.database_name],mode='deepfake')
+        machine_passages_dataset = PassagesDataset(machine_dataset[opt.database_name],mode='deepfake')
         val_dataset = PassagesDataset(dataset[opt.test_dataset_name],mode='deepfake')
     elif opt.dataset=='TuringBench':
         dataset = load_Turing(file_folder=opt.path)
+        machine_dataset = load_Turing(file_folder=opt.path, machine_text_only=True)
+
         passages_dataset = PassagesDataset(dataset[opt.database_name],mode='Turing')
+        machine_passages_dataset = PassagesDataset(machine_dataset[opt.database_name],mode='Turing')
+
         val_dataset = PassagesDataset(dataset[opt.test_dataset_name],mode='Turing')
+        print("TuringBench dataset loaded!,len:",len(machine_passages_dataset))
     elif opt.dataset=='OUTFOX':
         dataset = load_OUTFOX(opt.path)
         passages_dataset = PassagesDataset(dataset[opt.database_name],mode='OUTFOX')
@@ -112,7 +117,7 @@ def train(opt):
                                      num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
     val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
                             num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
-    
+
     if opt.only_classifier:
         opt.a=opt.b=opt.c=0
         opt.d=1

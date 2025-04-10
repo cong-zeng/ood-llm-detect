@@ -47,7 +47,7 @@ def process_spaces(text):
         '\n ', '\n').strip()
     return trim_quotes(text)
 
-def load_Turing(file_folder=None):
+def load_Turing(file_folder=None, machine_text_only=False):
     data={
         'train':[],
         'test':[],
@@ -64,6 +64,11 @@ def load_Turing(file_folder=None):
         for i in range(len(now_data)):
             text,src=now_data.iloc[i]['Generation'],now_data.iloc[i]['label']
             label= '1' if src=='human' else '0'
-            data[keyname].append((process_spaces(str(text)),label,src,i))
-    
+            if machine_text_only:
+                if label == "0":
+                    data[keyname].append((process_spaces(str(text)),label,src,i))
+                else:
+                    continue
+            else:
+                data[keyname].append((process_spaces(str(text)),label,src,i))
     return data
