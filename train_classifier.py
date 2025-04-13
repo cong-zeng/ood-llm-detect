@@ -106,6 +106,10 @@ def train(opt):
     elif opt.dataset=='M4':
         dataset = load_M4(opt.path)
         passages_dataset = PassagesDataset(dataset[opt.database_name]+dataset[opt.database_name.replace('train','dev')],mode='M4')
+
+        machine_dataset = load_M4(opt.path, machine_text_only=True)
+        machine_passages_dataset = PassagesDataset(machine_dataset[opt.database_name]+machine_dataset[opt.database_name.replace('train','dev')],mode='M4')
+        
         val_dataset = PassagesDataset(dataset[opt.test_dataset_name],mode='M4')
 
     if opt.AA:
