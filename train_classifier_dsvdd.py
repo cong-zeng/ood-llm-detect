@@ -12,9 +12,9 @@ from utils.utils import compute_metrics,calculate_metrics
 import torch
 from src.dataset import PassagesDataset
 from torch.utils.data import DataLoader
-# from src.simclr import SimCLR_Classifier,SimCLR_Classifier_SCL
-from src.deep_SVVD import SimCLR_Classifier,SimCLR_Classifier_SCL
-# from src.hrn import SimCLR_Classifier,SimCLR_Classifier_SCL
+
+from src.deep_SVDD import SimCLR_Classifier_SCL
+
 
 from lightning import Fabric
 from torch.utils.tensorboard import SummaryWriter
@@ -26,38 +26,18 @@ from utils.M4_utils import load_M4
 from utils.Deepfake_utils import load_deepfake
 from lightning.fabric.strategies import DDPStrategy
 from torch.utils.data.dataloader import default_collate
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, precision_score, recall_score, precision_recall_curve
 
-def process_top_ids_and_scores(top_ids_and_scores, label_dict):
-    preds=[]
-    for i, (ids, scores) in enumerate(top_ids_and_scores):
-        zero_num,one_num=0,0
-        for id in ids:
-            if label_dict[int(id)]==0:
-                zero_num+=1
-            else:
-                one_num+=1
-        if zero_num>one_num:
-            preds.append('0')
-        else:
-            preds.append('1')
-    return preds
 
-def process_top_ids_and_scores_AA(top_ids_and_scores, label_dict):
-    preds=[]
-    for i, (ids, scores) in enumerate(top_ids_and_scores):
-        num_dict={}
-        max_num,max_id=0,0
-        for id in ids:
-            if label_dict[int(id)] not in num_dict:
-                num_dict[label_dict[int(id)]]=1
-            else:
-                num_dict[label_dict[int(id)]]+=1
-            if num_dict[label_dict[int(id)]]>max_num:
-                max_num=num_dict[label_dict[int(id)]]
-                max_id=label_dict[int(id)]
-        preds.append(str(max_id))
-    return preds
+def best_threshold_by_f1(y_true, y_score):
+    precisions, recalls, thresholds = precision_recall_curve(y_true, y_score)
+    f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-8)
+
+    best_idx = np.argmax(f1_scores)
+    best_threshold = thresholds[best_idx]
+    best_f1 = f1_scores[best_idx]
+
+    return best_threshold, best_f1
 
 def collate_fn(batch):
     text,label,write_model,write_model_set = default_collate(batch)
@@ -128,25 +108,7 @@ def train(opt):
         opt.one_loss=True
     
     # Initialize model
-    if opt.one_loss:
-        model = SimCLR_Classifier_SCL(opt,fabric)
-    else:
-        model = SimCLR_Classifier(opt,fabric)
-        # assert opt.freeze_layer<=12 and opt.freeze_layer>=0, "freeze_layer should be in [0,12]"
-
-        # if opt.freeze_layer>0 or opt.freeze_embedding_layer:
-        #     name_list=[]
-        #     for i in range(opt.freeze_layer,12):
-        #         for name, param in model.model.named_parameters():
-        #             if name.startswith(f'encoder.layer.{i}'):
-        #                 name_list.append(name)
-
-        #     for name, param in  model.model.named_parameters():
-        #         if name in name_list:
-        #             param.requires_grad = True
-        #         else:
-        #             param.requires_grad = False
-    
+    model = SimCLR_Classifier_SCL(opt,fabric)
 
     if opt.freeze_embedding_layer:
         for name, param in model.model.named_parameters():
@@ -194,7 +156,6 @@ def train(opt):
     model.mark_forward_method('initialize_center_c')
 
     optimizer = fabric.setup_optimizers(optimizer)
-    max_avg_rec=0
     warm_up_n_epochs = 5  # number of training epochs for soft-boundary Deep SVDD before radius R gets updated
     
     #(DeepSVDD Setting) initialize center_c
@@ -202,22 +163,13 @@ def train(opt):
     model.initialize_center_c(machine_passages_dataloder)
 
     # Training loop
+    max_auc=0
     for epoch in range(opt.total_epoch):
         model.train()
         avg_loss = 0
         pbar = enumerate(passages_dataloder)
 
         if fabric.global_rank == 0:
-            # print("the model has {} parameters".format(sum(p.numel() for p in model.parameters()))
-            # for name, param in model.named_parameters():
-            #     if param.requires_grad:
-            #         print(name)
-            if opt.one_loss:
-                print("Train with one loss!")
-            # reset index
-            index.reset()
-            allembeddings, alllabels= [],[]
-            label_dict = {}            
             pbar = tqdm(pbar, total = len(passages_dataloder))
             print(('\n' + '%11s' *(5)) % ('Epoch', 'GPU_mem', 'Cur_loss', 'avg_loss','lr'))
 
@@ -239,9 +191,9 @@ def train(opt):
 
             # forward pass and loss calculation
             if opt.one_loss:
-                loss, loss_label, loss_classfiy, k_out, k_outlabel  = model(encoded_batch, write_model, write_model_set,label)
+                loss, loss_label, loss_DeepSVDD, k_out, k_outlabel  = model(encoded_batch, write_model, write_model_set,label)
             else:
-                loss, loss_model, loss_set, loss_label, loss_classfiy, loss_human, k_out, k_outlabel  = model(encoded_batch,write_model,write_model_set,label)
+                loss, loss_model, loss_set, loss_label, loss_DeepSVDD, loss_human, k_out, k_outlabel  = model(encoded_batch,write_model,write_model_set,label)
         
             # backward pass and optimization
             avg_loss = (avg_loss * i + loss.item()) / (i+1)
@@ -256,8 +208,8 @@ def train(opt):
 
             # (DeepSVDD Setting)Update hypersphere radius R on mini-batch distances 
             if opt.objective == "soft-boundary" and (epoch >= warm_up_n_epochs):
-                loss_classfiy = fabric.all_gather(loss_classfiy).mean() 
-                model.DeepSVDD.R.data = torch.tensor(get_radius(loss_classfiy, model.DeepSVDD.nu), device=model.device)
+                loss_DeepSVDD = fabric.all_gather(loss_DeepSVDD).mean() 
+                model.DeepSVDD.R.data = torch.tensor(get_radius(loss_DeepSVDD, model.DeepSVDD.nu), device=model.device)
 
             # log
             mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
@@ -266,14 +218,13 @@ def train(opt):
                     ('%11s' * 2 + '%11.4g' * 3) %
                     (f'{epoch + 1}/{opt.total_epoch}', mem, loss.item(),avg_loss, current_lr)
                 )
-                allembeddings.append(k_out.cpu())
-                alllabels.extend(k_outlabel.cpu().tolist())            
+
                 if current_step%10==0:
                     writer.add_scalar('lr', current_lr, current_step)
                     writer.add_scalar('loss', loss.item(), current_step)
                     writer.add_scalar('avg_loss', avg_loss, current_step)
                     writer.add_scalar('loss_label', loss_label.item(), current_step)
-                    writer.add_scalar('loss_classfiy', loss_classfiy.item(), current_step)
+                    writer.add_scalar('loss_DeepSVDD', loss_DeepSVDD.item(), current_step)
                     if opt.one_loss==False:
                         writer.add_scalar('loss_model', loss_model.item(), current_step)
                         writer.add_scalar('loss_model_set', loss_set.item(), current_step)
@@ -285,12 +236,10 @@ def train(opt):
             model.eval()
             pbar = enumerate(val_dataloder)
             if fabric.global_rank == 0 :
-                test_embeddings, test_labels, preds_list = [],[], []           
+                test_labels, preds_list = [],[]           
                 pbar = tqdm(pbar, total=len(val_dataloder))
-                # print(('\n' + '%11s' *(5)) % ('Epoch', 'GPU_mem', 'Cur_acc', 'avg_acc','loss'))
                 print(('\n' + '%11s' *(3)) % ('Epoch', 'GPU_mem', 'loss'))
             
-            # right_num, tot_num = 0,0
             for i, batch in pbar:
                 encoded_batch, label, write_model, write_model_set = batch
                 encoded_batch = { k: v.cuda() for k, v in encoded_batch.items()}
@@ -305,80 +254,42 @@ def train(opt):
                 mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
                 if fabric.global_rank == 0 :
                     preds_list.append(out.cpu())
-                    test_embeddings.append(k_out.cpu())
                     test_labels.append(k_outlabel.cpu())
                     pbar.set_description(
-                        # ('%11s' * 2 + '%11.4g' * 3) %
-                        # (f'{epoch + 1}/{opt.total_epoch}', mem, cur_right_num/cur_num, right_num/tot_num,loss.item())
                         ('%11s' * 2 + '%11.4g') % 
                         (f'{epoch + 1}/{opt.total_epoch}', mem, loss.item())
                     )
-            # use roc_auc_score to evaluate the performance 
+            # use roc_auc_score and other metrics to evaluate the performance 
             if fabric.global_rank == 0 :
                 pred_np = torch.cat(preds_list).view(-1).numpy()
                 label_np = torch.cat(test_labels).view(-1).numpy()
                 auc = roc_auc_score(label_np, pred_np)
-                print(f"Val test auc: {auc}")
+                # other metrics
+                threshold, f1 = best_threshold_by_f1(label_np, pred_np)
+                y_pred = np.where(pred_np>threshold,1,0)
+                acc = accuracy_score(label_np, y_pred)
+                precision = precision_score(label_np, y_pred)
+                recall = recall_score(label_np, y_pred)
+                fi = f1_score(label_np, y_pred)
+                print(f"Val, AUC: {auc}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{fi}")
+                writer.add_scalar('val_auc', auc, epoch)
+                writer.add_scalar('val_acc', acc, epoch)
+                writer.add_scalar('val_precision', precision, epoch)
+                writer.add_scalar('val_recall', recall, epoch)
+                writer.add_scalar('val_f1', fi, epoch)
+                writer.add_scalar('val_threshold', threshold, epoch)
+                writer.add_scalar('val_f1', f1, epoch)
+
+
         torch.cuda.empty_cache()
         fabric.barrier()
-        #Inference: embedding search
-        # if opt.only_classifier==False and fabric.global_rank == 0:
-        #     print("Add embeddings to index!")
-        #     allembeddings = torch.cat(allembeddings, dim=0)
-        #     epsilon = 1e-6
-        #     norms  = torch.norm(allembeddings, dim=1, keepdim=True) + epsilon
-        #     allembeddings= allembeddings / norms
-        #     allids=range(len(alllabels))
-        #     for i in range(len(allids)):
-        #         label_dict[allids[i]]=alllabels[i]
-        #     index.index_data(allids,allembeddings.numpy())
-        #     print("Add embeddings to index done!")
-        
-        #     print("Search knn!")
-        #     test_embeddings = torch.cat(test_embeddings, dim=0)
-        #     test_labels=[str(test_labels[i]) for i in range(len(test_labels))]
-        #     epsilon = 1e-6
-        #     norms  = torch.norm(test_embeddings, dim=1, keepdim=True) + epsilon
-        #     test_embeddings= test_embeddings / norms
-        #     if len(test_embeddings.shape) == 1:
-        #         test_embeddings = test_embeddings.reshape(1, -1)
-        #     test_embeddings=test_embeddings.numpy()
-        #     top_ids_and_scores = index.search_knn(test_embeddings, opt.topk)
-        #     if opt.AA:
-        #         preds = process_top_ids_and_scores_AA(top_ids_and_scores, label_dict)
-        #     else:
-        #         preds = process_top_ids_and_scores(top_ids_and_scores, label_dict)
-        #     print("Search knn done!")
-        #     if opt.AA:
-        #         # print(test_labels[:10],preds[:10])
-        #         accuracy, avg_f1,avg_rec = calculate_metrics(test_labels, preds)
-        #         print(f"Validation Accuracy: {accuracy}, AvgF1: {avg_f1}, AvgRecall: {avg_rec}")
-        #         # writer.add_scalar('val/val_loss', test_loss, epoch)
-        #         writer.add_scalar('val/val_acc', accuracy, epoch)
-        #         writer.add_scalar('val/val_avg_f1', avg_f1, epoch)
-        #         writer.add_scalar('val/val_avg_recall', avg_rec, epoch)
-        #     else:
-        #         human_rec, machine_rec, avg_rec, acc, precision, recall, f1 = compute_metrics(test_labels, preds)
-        #         print(f"Validation HumanRec: {human_rec}, MachineRec: {machine_rec}, AvgRec: {avg_rec}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
-        #         # writer.add_scalar('val/val_loss', test_loss, epoch)
-        #         writer.add_scalar('val/val_acc', acc, epoch)
-        #         writer.add_scalar('val/val_precision', precision, epoch)
-        #         writer.add_scalar('val/val_recall', recall, epoch)
-        #         writer.add_scalar('val/val_f1', f1, epoch)
-        #         writer.add_scalar('val/val_human_rec', human_rec, epoch)
-        #         writer.add_scalar('val/val_machine_rec', machine_rec, epoch)
-        #         writer.add_scalar('val/val_avg_rec', avg_rec, epoch)
-
-
+        # save model
         if fabric.global_rank == 0:
-            # writer.add_scalar('val/acc_classifier', right_num/tot_num, epoch)
-            # if opt.only_classifier:
-                # avg_rec=right_num/tot_num
-            # if avg_rec>max_avg_rec:
-            #     max_avg_rec=avg_rec
-            #     torch.save(model.get_encoder().state_dict(), os.path.join(opt.savedir,'model_best.pth'))
-            #     torch.save(model.state_dict(), os.path.join(opt.savedir,'model_classifier_best.pth'))
-            #     print('Save model to {}'.format(os.path.join(opt.savedir,'model_best.pth'.format(epoch))), flush=True)
+            if auc>max_auc:
+                max_auc=auc
+                torch.save(model.get_encoder().state_dict(), os.path.join(opt.savedir,'model_best.pth'))
+                torch.save(model.state_dict(), os.path.join(opt.savedir,'model_classifier_best.pth'))
+                print('Save model to {}'.format(os.path.join(opt.savedir,'model_best.pth'.format(epoch))), flush=True)
             
             if epoch%10==0:
                 torch.save(model.get_encoder().state_dict(), os.path.join(opt.savedir,'model_{}.pth'.format(epoch)))
