@@ -57,5 +57,5 @@ CUDA_LAUNCH_BLOCKING=1 python train_classifier.py --device_num 1 --per_gpu_batch
     --classifier_dim 1\
     --model_name princeton-nlp/unsup-simcse-roberta-base --dataset deepfake --path ${DATA_PATH}/Deepfake/cross_domains_cross_models \
     --name deepfake-roberta-base --freeze_embedding_layer --database_name train --test_dataset_name test\
-    # --resum True\
-    # --pth_path /home/zc/DeTeCtive/ckpt/Deepfake_best.pth\
+    --resum True\
+    --pth_path /home/zc/DeTeCtive/ckpt/Deepfake_best.pth\

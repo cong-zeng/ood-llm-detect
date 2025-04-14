@@ -20,7 +20,7 @@ class Cholesky(torch.autograd.Function):
     
 class DaGMM(nn.Module):
     """Residual Block."""
-    def __init__(self, n_gmm = 2, dim=768, latent_dim=3):
+    def __init__(self, n_gmm = 2, dim=768, latent_dim=18):
         super(DaGMM, self).__init__()
 
         layers = []
@@ -30,13 +30,13 @@ class DaGMM(nn.Module):
         layers += [nn.Tanh()]        
         layers += [nn.Linear(int(dim/4),int(dim/8))]
         layers += [nn.Tanh()]        
-        layers += [nn.Linear(int(dim/8),1)]
+        layers += [nn.Linear(int(dim/8),16)]
 
         self.encoder = nn.Sequential(*layers)
 
 
         layers = []
-        layers += [nn.Linear(1,int(dim/8))]
+        layers += [nn.Linear(16,int(dim/8))]
         layers += [nn.Tanh()]        
         layers += [nn.Linear(int(dim/8),int(dim/4))]
         layers += [nn.Tanh()]        
@@ -73,6 +73,8 @@ class DaGMM(nn.Module):
         rec_euclidean = self.relative_euclidean_distance(x, dec)
 
         z = torch.cat([enc, rec_euclidean.unsqueeze(-1), rec_cosine.unsqueeze(-1)], dim=1)
+        # z = torch.cat([enc, rec_cosine.unsqueeze(-1)], dim=1)
+
 
         gamma = self.estimation(z)
 
@@ -127,7 +129,7 @@ class DaGMM(nn.Module):
         cov_inverse = []
         det_cov = []
         cov_diag = 0
-        eps = 1e-12
+        eps = 1e-4
         for i in range(k):
             # K x D x D
             cov_k = cov[i] + torch.eye(D, device=cov[i].device)*eps
@@ -317,7 +319,7 @@ class SimCLR_Classifier(nn.Module):
 
         self.model = TextEmbeddingModel(opt.model_name)
         if opt.resum:
-            state_dict = torch.load(opt.pth_path, map_location=self.model.device)
+            state_dict = torch.load(opt.pth_path, map_location="cpu")
             self.model.load_state_dict(state_dict)
   
         self.device=self.model.model.device
@@ -329,7 +331,7 @@ class SimCLR_Classifier(nn.Module):
 
         self.classifier = ClassificationHead(opt.projection_size, opt.classifier_dim)
         self.only_classifier = opt.only_classifier
-        self.dagmm = DaGMM(n_gmm=2, dim=opt.projection_size)
+        self.dagmm = DaGMM(n_gmm=3, dim=opt.projection_size)
 
 
     def get_encoder(self):
