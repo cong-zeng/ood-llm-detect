@@ -8,19 +8,23 @@ raid_name_dct = {'OpenAI-GPT': ["chatgpt", "gpt4", "gpt3", "gpt2"],
 
 raid_model_set ={'OpenAI-GPT':0,'Meta-LLaMA':1,'MPT':2,'Cohere':3,\
             'Mistral':4,'human':5}
-def load_raid(train=True, machine_text_only=False):
-    data = []
-    if train:
-        raid = load_dataset("Shengkun/Raid_split", split="train")
-    else:
-        raid = load_dataset("Shengkun/Raid_split", split="test")
+def load_raid(machine_text_only=False):
+    data_new = {"train": [], "test": []}
+    raid_train = load_dataset("Shengkun/Raid_split", split="train")
+    raid_test = load_dataset("Shengkun/Raid_split", split="test")
     
     if machine_text_only:
-        raid = raid.filter(lambda sample: sample["model"] != "human")
+        raid_train = raid_train.filter(lambda sample: sample["model"] != "human")
     
-    for i in range(len(raid)):
+    for i in range(len(raid_train)):
         label = 1
-        if raid[i]["model"] != "human":
+        if raid_train[i]["model"] != "human":
             label = 0
-        data.append((raid[i]["generation"], label, raid[i]["human"], i))
-    return data
+        data_new["train"].append((raid_train[i]["generation"], label, raid_train[i]["human"], i))
+
+    for i in range(len(raid_test)):
+        label = 1
+        if raid_test[i]["model"] != "human":
+            label = 0
+        data_new["test"].append((raid_test[i]["generation"], label, raid_test[i]["human"], i))
+    return data_new
