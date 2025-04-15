@@ -183,7 +183,7 @@ def train(opt):
             pbar = enumerate(val_dataloder)
             if fabric.global_rank == 0:
                 pbar = tqdm(pbar, total = len(val_dataloder))
-                print(('\n' + '%11s' *(3)) % ('Epoch', 'GPU_mem', 'loss'))
+                print(('\n' + '%11s' *(2)) % ('Epoch', 'GPU_mem'))
                 test_labels, energy_list = [], []
 
             for i, batch in pbar:
@@ -196,8 +196,8 @@ def train(opt):
                     energy_list.append(neg_energy.cpu().detach())
                     test_labels.append(k_outlabel.cpu().detach())
                     pbar.set_description(
-                            ('%11s' * 2 + '%11.4g') % 
-                            (f'{epoch + 1}/{opt.total_epoch}', mem, neg_energy.item()))
+                            ('%11s' * 2 ) % 
+                            (f'{epoch + 1}/{opt.total_epoch}', mem ))
 
             # use roc_auc_score and other metrics to evaluate the performance 
             if fabric.global_rank == 0:
