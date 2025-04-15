@@ -27,7 +27,7 @@
 #     --name OUTFOX-roberta-base --freeze_embedding_layer --database_name train --test_dataset_name test
 
 DATA_PATH="data"
-export CUDA_VISIBLE_DEVICES=0,1
+export CUDA_VISIBLE_DEVICES=1
 
 #################################################################################
 #                                    DeepSVDD                                   #
@@ -77,16 +77,16 @@ export CUDA_VISIBLE_DEVICES=0,1
 #     --savedir /home/zc/DeTeCtive/runs/deepfake-roberta-base_v1
 
 # M4-multilingual
-python train_classifier_hrn.py --device_num 1 --per_gpu_batch_size 32 --total_epoch 5 --lr 2e-5 --warmup_steps 2000\
+python train_classifier_hrn.py --device_num 1 --per_gpu_batch_size 32 --total_epoch 10 --lr 2e-5 --warmup_steps 2000\
     --method hrn\
     --classifier_dim 1\
     --only_classifier\
     --resum True\
     --pth_path /home/zc/DeTeCtive/ckpt/M4_multilingual_best.pth\
     --model_name princeton-nlp/unsup-simcse-roberta-base --dataset M4 --path ${DATA_PATH}/SemEval2024-M4/SubtaskA \
-    --name M4-multilingual-roberta-base --freeze_embedding_layer --database_name multilingual_train --test_dataset_name multilingual_test
-
-
+    --name M4-multilingual-roberta-base --freeze_embedding_layer --database_name multilingual_train --test_dataset_name multilingual_test\
+    --skip_train\
+    --savedir /home/zc/DeTeCtive/runs/M4-multilingual-roberta-base_v5
 
 #################################################################################
 #                                   Energy                                      #

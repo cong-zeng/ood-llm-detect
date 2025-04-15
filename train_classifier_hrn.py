@@ -85,7 +85,7 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric: Fabric):
     passages_dataloder= fabric.setup_dataloaders(passages_dataloder)
     val_dataloder = fabric.setup_dataloaders(val_dataloder)
     
-    writer = SummaryWriter(os.path.join(opt.savedir,'runs'))
+
     # Set up optimizer and scheduler
     num_batches_per_epoch = len(passages_dataloder)
     print("num_batches_per_epoch, passage: ", len(passages_dataloder))
@@ -101,15 +101,15 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric: Fabric):
 
     # Training loop
     max_auc = 0
+    print(" -------Training Model Set: {}--Model Set idx: {}-------".format(model_set_name, model_set_idx))  
     for epoch in range(opt.total_epoch):
         model.train()
         avg_loss = 0
         pbar = enumerate(passages_dataloder)
 
         if fabric.global_rank == 0:   
-            print(" -------Training Model Set: {}--Model Set idx: {}-------".format(model_set_name, model_set_idx))  
             pbar = tqdm(pbar, total = len(passages_dataloder))
-            print(('\n' + '%11s' *(5)) % ('Epoch', 'GPU_mem', 'Cur_loss', 'avg_loss','lr'))
+            print(('\n' + '%11s' *(7)) % ('Epoch', 'GPU_mem', 'lr', 'Cur_loss', 'avg_loss', 'loss_clr', 'l_classify'))
 
         for i, batch in pbar:
             # gradient reset
@@ -140,15 +140,15 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric: Fabric):
             mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
             if fabric.global_rank == 0:
                 pbar.set_description(
-                    ('%11s' * 2 + '%11.4g' * 3) %
-                    (f'{epoch + 1}/{opt.total_epoch}', mem, loss.item(),avg_loss, current_lr))
-                if current_step%10==0:
-                    writer.add_scalar('model_set_idx', model_set_idx, current_step)
-                    writer.add_scalar('lr', current_lr, current_step)
-                    writer.add_scalar('loss', loss.item(), current_step)
-                    writer.add_scalar('avg_loss', avg_loss, current_step)
-                    writer.add_scalar('loss_label', loss_label.item(), current_step)
-                    writer.add_scalar('loss_classfiy', loss_classfiy.item(), current_step)
+                    ('%11s' * 2 + '%11.4g' * 5) %
+                    (f'{epoch + 1}/{opt.total_epoch}', mem, current_lr, loss.item(),avg_loss, loss_label, loss_classfiy))
+                # if current_step%10==0:
+                #     writer.add_scalar('model_set_idx', model_set_idx, current_step)
+                #     writer.add_scalar('lr', current_lr, current_step)
+                #     writer.add_scalar('loss', loss.item(), current_step)
+                #     writer.add_scalar('avg_loss', avg_loss, current_step)
+                #     writer.add_scalar('loss_label', loss_label.item(), current_step)
+                #     writer.add_scalar('loss_classfiy', loss_classfiy.item(), current_step)
         
         #Validation
         with torch.no_grad():
@@ -156,9 +156,9 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric: Fabric):
             pbar = enumerate(val_dataloder)
             if fabric.global_rank == 0:
                 pbar = tqdm(pbar, total = len(val_dataloder))
-                print(('\n' + '%11s' *(3)) % ('Epoch', 'GPU_mem', 'loss'))
+                print(('\n' + '%11s' *(3)) % ('Model_set_id', 'GPU_mem', 'loss'))
                 test_labels, pred_list = [], []
-                print(" -------Validation Model Set: {}--Model Set idx: {}-------".format(model_set_name, model_set_idx))
+
 
             for i, batch in pbar:
                 encoded_batch, label, write_model, write_model_set = batch
@@ -187,13 +187,13 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric: Fabric):
                 recall = recall_score(label_np, y_pred)
                 f1 = f1_score(label_np, y_pred)
                 print(f"Val, AUC: {auc}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
-                writer.add_scalar('val_auc', auc, epoch)
-                writer.add_scalar('val_acc', acc, epoch)
-                writer.add_scalar('val_precision', precision, epoch)
-                writer.add_scalar('val_recall', recall, epoch)
-                writer.add_scalar('val_f1', f1, epoch)
-                writer.add_scalar('val_threshold', threshold, epoch)
-                writer.add_scalar('val_f1', f1, epoch)
+                # writer.add_scalar('val_auc', auc, epoch)
+                # writer.add_scalar('val_acc', acc, epoch)
+                # writer.add_scalar('val_precision', precision, epoch)
+                # writer.add_scalar('val_recall', recall, epoch)
+                # writer.add_scalar('val_f1', f1, epoch)
+                # writer.add_scalar('val_threshold', threshold, epoch)
+                # writer.add_scalar('val_f1', f1, epoch)
 
         torch.cuda.empty_cache()
         fabric.barrier()
@@ -204,7 +204,7 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric: Fabric):
                 max_auc = auc
                 torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_{model_set_name}_best.pth"))
                 print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_{model_set_name}_best.pth")) 
-            writer.add_scalar('max_AUC', max_auc, epoch)
+            # writer.add_scalar('max_AUC', max_auc, epoch)
             print("[Epoch %d/%d/%d]  [loss: %0.2f] [MaxAUC: %0.4f]" %
                     (epoch + 1, opt.total_epoch, model_set_idx + 1, loss, max_auc))
 
@@ -320,24 +320,16 @@ def train(opt):
             recall = recall_score(label_np, y_pred)
             f1 = f1_score(label_np, y_pred)
             print(f"Test, AUC: {auc}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
-            writer.add_scalar('test_auc', auc, 0)
-            writer.add_scalar('test_acc', acc, 0)
-            writer.add_scalar('test_precision', precision, 0)
-            writer.add_scalar('test_recall', recall, 0)
-            writer.add_scalar('test_f1', f1, 0)
-            writer.add_scalar('test_threshold', threshold, 0)
-            writer.add_scalar('test_f1', f1, 0)
+
             # Save test results
             test_results = {
-                'predictions': pred_np,
-                'labels': label_np,
                 'auc': auc,
                 'acc': acc,
                 'precision': precision,
                 'recall': recall,
                 'f1': f1
             }
-            test_results_path = os.path.join(opt.savedir, f"test_results_{model_set_name}.json")
+            test_results_path = os.path.join(opt.savedir, f"test_results_{opt.dataset}_{opt.method}.json")
             with open(test_results_path, 'w') as f: 
                 json.dump(test_results, f)
             print("Test results saved at: ", test_results_path)
