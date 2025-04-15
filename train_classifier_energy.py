@@ -4,6 +4,7 @@ import random
 random.seed(42)
 from tqdm import tqdm
 import numpy as np
+import json
 import os
 import argparse
 from transformers import AutoTokenizer
@@ -196,7 +197,7 @@ def train(opt):
                     test_labels.append(k_outlabel.cpu().detach())
                     pbar.set_description(
                             ('%11s' * 2 + '%11.4g') % 
-                            (f'{epoch + 1}/{opt.total_epoch}', mem, loss.item()))
+                            (f'{epoch + 1}/{opt.total_epoch}', mem, neg_energy.item()))
 
             # use roc_auc_score and other metrics to evaluate the performance 
             if fabric.global_rank == 0:
@@ -224,16 +225,33 @@ def train(opt):
         fabric.barrier()
         # save model
         if fabric.global_rank == 0:
+            print("[Epoch %d/%d]  [loss: %0.2f] [MaxAUC: %0.4f]" % (epoch + 1, opt.total_epoch, loss, max_auc))
+            # save the best model
             if auc > max_auc:
                 max_auc = auc
                 torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_energy_best.pth"))
                 print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_energy_best.pth")) 
-            writer.add_scalar('max_AUC', max_auc, epoch)
-            print("[Epoch %d/%d]  [loss: %0.2f] [MaxAUC: %0.4f]" %
-                    (epoch + 1, opt.total_epoch, loss, max_auc))
+                # save the best test result
+                test_results = {
+                    'epoch': epoch,
+                    'auc': auc,
+                    'acc': acc,
+                    'precision': precision,
+                    'recall': recall,
+                    'f1': f1,
+                }
+                test_results_path = os.path.join(opt.savedir, f"test_results_{opt.dataset}_{opt.method}.json")
+                with open(test_results_path, 'w') as f:
+                    json.dump(test_results, f)
+                print("Test results saved at: ", test_results_path)
+            # save every 10 epochs`
+            if (epoch+1)%10==0:
+                torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_energy_epoch_{epoch+1}.pth"))
+                print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_energy_epoch_{epoch+1}.pth"))
 
-
-    
+            torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_energy_last.pth"))
+            print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_energy_last.pth")) 
+            
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
