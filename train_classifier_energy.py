@@ -26,7 +26,7 @@ from utils.Turing_utils import load_Turing
 from utils.OUTFOX_utils import load_OUTFOX
 from utils.M4_utils import load_M4
 from utils.Deepfake_utils import load_deepfake
-from utils.Raid_utils import load_raid
+from utils.raid_utils import load_raid
 from lightning.fabric.strategies import DDPStrategy
 from torch.utils.data.dataloader import default_collate
 from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, precision_score, recall_score, precision_recall_curve

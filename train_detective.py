@@ -20,6 +20,8 @@ from utils.Turing_utils import load_Turing
 from utils.OUTFOX_utils import load_OUTFOX
 from utils.M4_utils import load_M4
 from utils.Deepfake_utils import load_deepfake
+from utils.raid_utils import load_raid
+
 from lightning.fabric.strategies import DDPStrategy
 from torch.utils.data.dataloader import default_collate
 
@@ -91,6 +93,10 @@ def train(opt):
         dataset = load_M4(opt.path)
         passages_dataset = PassagesDataset(dataset[opt.database_name]+dataset[opt.database_name.replace('train','dev')],mode='M4')
         val_dataset = PassagesDataset(dataset[opt.test_dataset_name],mode='M4')
+    elif opt.dataset=='raid':
+        dataset = load_raid()
+        passages_dataset = PassagesDataset(dataset[opt.database_name],mode='raid')
+        val_dataset = PassagesDataset(dataset[opt.test_dataset_name],mode='raid')
 
     if opt.AA:
         opt.classifier_dim=len(passages_dataset.model_name_set)
@@ -336,7 +342,7 @@ if __name__ == "__main__":
         "--per_gpu_eval_batch_size", default=64, type=int, help="Batch size per GPU for evaluation."
     )
 
-    parser.add_argument("--dataset", type=str, default="deepfake", help="deepfake,OUTFOX,TuringBench,M4")
+    parser.add_argument("--dataset", type=str, default="deepfake", help="deepfake,OUTFOX,TuringBench,M4,raid")
     parser.add_argument("--path", type=str, default="/home/heyongxin/LLM_detect_data/Deepfake_dataset/cross_domains_cross_models")
     parser.add_argument('--database_name', type=str, default='train', help="train,valid,test,test_ood")
     parser.add_argument('--test_dataset_name', type=str, default='test', help="train,valid,test,test_ood")
