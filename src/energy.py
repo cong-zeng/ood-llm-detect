@@ -98,11 +98,14 @@ class SimCLR_Classifier_SCL(nn.Module):
             loss_label = F.cross_entropy(logits_label, gt)
         
         # --------- Classification Loss (ID) ---------
-        machine_txt_idx = (label == 0).view(-1)
-        q_machine = q[machine_txt_idx]
-        classify_label = indices2[machine_txt_idx]
-        out = self.classifier(q_machine)
-        loss_classify = F.cross_entropy(out, classify_label)
+        if self.training:
+            machine_txt_idx = (label == 0).view(-1)
+            q_machine = q[machine_txt_idx]
+            classify_label = indices2[machine_txt_idx]
+            out = self.classifier(q_machine)
+            loss_classify = F.cross_entropy(out, classify_label)
+        else:
+            loss_classify = torch.tensor(0,device=self.device)
 
 
         # --------- Energy Loss (ID vs OOD) ---------
