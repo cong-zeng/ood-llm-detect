@@ -135,8 +135,6 @@ def train(opt):
         pbar = enumerate(passages_dataloder)
 
         if fabric.global_rank == 0:
-            if opt.one_loss:
-                print("Train with one loss!")     
             pbar = tqdm(pbar, total = len(passages_dataloder))
             print(('\n' + '%11s' *(4) + '%14s' * 3) % ('Epoch', 'GPU_mem','lr', 'Cur_loss', 'avg_loss', 'loss_classifiy', 'loss_energy'))
 
@@ -222,15 +220,18 @@ def train(opt):
                 writer.add_scalar('val_threshold', threshold, epoch)
                 writer.add_scalar('val_f1', f1, epoch)
                 writer.add_scalar('Val_AUC', auc, epoch)
-                if auc > max_auc:
-                    max_auc = auc
-                    torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_energy_best.pth"))
-                    print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_energy_best.pth")) 
-                writer.add_scalar('max_AUC', max_auc, epoch)
-                print("[Epoch %d/%d]  [loss: %0.2f] [MaxAUC: %0.4f]" %
-                        (epoch + 1, opt.total_epoch, loss, max_auc))
         torch.cuda.empty_cache()
         fabric.barrier()
+        # save model
+        if fabric.global_rank == 0:
+            if auc > max_auc:
+                max_auc = auc
+                torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_energy_best.pth"))
+                print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_energy_best.pth")) 
+            writer.add_scalar('max_AUC', max_auc, epoch)
+            print("[Epoch %d/%d]  [loss: %0.2f] [MaxAUC: %0.4f]" %
+                    (epoch + 1, opt.total_epoch, loss, max_auc))
+
 
     
 
