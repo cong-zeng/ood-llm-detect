@@ -17,14 +17,14 @@ def load_raid(machine_text_only=False):
         raid_train = raid_train.filter(lambda sample: sample["model"] != "human")
     
     for i in range(len(raid_train)):
-        label = 1
+        label = "1"
         if raid_train[i]["model"] != "human":
-            label = 0
+            label = "0"
         data_new["train"].append((raid_train[i]["generation"], label, raid_train[i]["human"], i))
 
     for i in range(len(raid_test)):
-        label = 1
+        label = "1"
         if raid_test[i]["model"] != "human":
-            label = 0
+            label = "0"
         data_new["test"].append((raid_test[i]["generation"], label, raid_test[i]["human"], i))
     return data_new
