@@ -26,6 +26,7 @@ from utils.Turing_utils import load_Turing
 from utils.OUTFOX_utils import load_OUTFOX
 from utils.M4_utils import load_M4
 from utils.Deepfake_utils import load_deepfake
+from utils.Raid_utils import load_raid
 from lightning.fabric.strategies import DDPStrategy
 from torch.utils.data.dataloader import default_collate
 from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, precision_score, recall_score, precision_recall_curve
@@ -75,8 +76,15 @@ def train(opt):
                                         num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
         val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
                                 num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)   
+    elif opt.dataset=='Raid':
+        dataset = load_raid()
+        passages_dataset = PassagesDataset(dataset[opt.database_name],mode='Raid', model_set_idx=None)
+        val_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='Raid', model_set_idx=None)
+        passages_dataloder = DataLoader(passages_dataset, batch_size=opt.per_gpu_batch_size,\
+                                        num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
+        val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
+                                num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
     
-
     if opt.only_classifier:
         opt.a=opt.b=opt.c=0
         opt.d=1
@@ -225,10 +233,10 @@ def train(opt):
         fabric.barrier()
         # save model
         if fabric.global_rank == 0:
-            print("[Epoch %d/%d]  [loss: %0.2f] [MaxAUC: %0.4f]" % (epoch + 1, opt.total_epoch, loss, max_auc))
             # save the best model
             if auc > max_auc:
                 max_auc = auc
+                print("[Epoch %d/%d]  [loss: %0.2f] [MaxAUC: %0.4f]" % (epoch + 1, opt.total_epoch, loss, max_auc))
                 torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_energy_best.pth"))
                 print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_energy_best.pth")) 
                 # save the best test result
