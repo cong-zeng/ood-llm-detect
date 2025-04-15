@@ -4,11 +4,12 @@ import random
 random.seed(42)
 from tqdm import tqdm
 import numpy as np
+import json
 import os
 import argparse
 from transformers import AutoTokenizer
 from src.index import Indexer
-from utils.utils import compute_metrics,calculate_metrics
+from utils.utils import compute_metrics,calculate_metrics,best_threshold_by_f1
 import torch
 from src.dataset import PassagesDataset
 from torch.utils.data import DataLoader
@@ -24,9 +25,10 @@ from utils.M4_utils import load_M4
 from utils.Deepfake_utils import load_deepfake
 from lightning.fabric.strategies import DDPStrategy
 from torch.utils.data.dataloader import default_collate
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, precision_score, recall_score, precision_recall_curve
 
 from utils.Deepfake_utils import deepfake_model_set,deepfake_name_dct
+from utils.M4_utils import M4_model_set
 
 torch.random.manual_seed(42)
 np.random.seed(42)
@@ -44,19 +46,23 @@ def collate_fn(batch):
 
 def train_single_classifier(model_set_idx, model_set_name, opt, fabric: Fabric):
     # Load training data by model set
-    dataset = load_deepfake(opt.path)
-
-    passages_dataset = PassagesDataset(dataset[opt.database_name],mode='deepfake', model_set_idx=model_set_idx)
-
-    # Set up data loaders for training and validation
-    passages_dataloder = DataLoader(passages_dataset, batch_size=opt.per_gpu_batch_size,\
+    if opt.dataset=='deepfake':
+        dataset = load_deepfake(opt.path)
+        passages_dataset = PassagesDataset(dataset[opt.database_name],mode='deepfake', model_set_idx=model_set_idx)
+        passages_dataloder = DataLoader(passages_dataset, batch_size=opt.per_gpu_batch_size,\
                                      num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
-    # Load validation data
-    dataset = load_deepfake(opt.path)
-    val_dataset = PassagesDataset(dataset[opt.valid_dataset_name], val=True, mode='deepfake', model_set_idx=None)
-    val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
+        val_dataset = PassagesDataset(dataset[opt.valid_dataset_name], mode='deepfake', model_set_idx=None)
+        val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
                             num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
-
+    elif opt.dataset=='M4':
+        dataset = load_M4(opt.path)
+        passages_dataset = PassagesDataset(dataset[opt.database_name]+dataset[opt.database_name.replace('train','dev')],mode='M4', model_set_idx=model_set_idx)
+        passages_dataloder = DataLoader(passages_dataset, batch_size=opt.per_gpu_batch_size,\
+                                     num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
+        val_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='M4', model_set_idx=None)
+        val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
+                            num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
+        
     if opt.only_classifier:
         opt.a=opt.b=opt.c=0
         opt.d=1
@@ -77,6 +83,7 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric: Fabric):
                 param.requires_grad=False
 
     passages_dataloder= fabric.setup_dataloaders(passages_dataloder)
+    val_dataloder = fabric.setup_dataloaders(val_dataloder)
     
     writer = SummaryWriter(os.path.join(opt.savedir,'runs'))
     # Set up optimizer and scheduler
@@ -187,7 +194,7 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric: Fabric):
     # Return best model and best AUC
     best_model = SimCLR_Classifier_SCL(opt,fabric)
     best_model.load_state_dict(torch.load(os.path.join(opt.savedir, f"model_classifier_{model_set_name}_best.pth")))
-    best_model = fabric.setup_module(model)
+
     return best_model, None, max_auc
 
 def train(opt):
@@ -216,11 +223,17 @@ def train(opt):
             yaml.dump(opt_dict, file, sort_keys=False)
 
     # Train model for each model set
-    num_models = len(deepfake_model_set) - 1
+    if opt.dataset=='deepfake':
+        num_models = len(deepfake_model_set) - 1
+        model_set_names = list(deepfake_model_set.keys())
+    elif opt.dataset=='M4':
+        num_models = 5
+        model_set_names = list(M4_model_set.keys())
+    
     models = {}
 
     for model_set_idx in range(num_models):
-        model_set_name = list(deepfake_model_set.keys())[model_set_idx]
+        model_set_name = model_set_names[model_set_idx]
         print("Start Training Model Set: ", model_set_name)
 
         if opt.skip_train:
@@ -233,13 +246,20 @@ def train(opt):
             model = fabric.setup_module(model)
         else:
             model, pred_np, auc = train_single_classifier(model_set_idx, model_set_name, opt, fabric)
+            model = fabric.setup_module(model)
         models[model_set_idx] = model
     
     # Testing
-    dataset = load_deepfake(opt.path)
-    test_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='deepfake', model_set_idx=None)
-    test_dataloder = DataLoader(test_dataset, batch_size=opt.per_gpu_eval_batch_size,\
-                            num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
+    if opt.dataset=='deepfake':
+        dataset = load_deepfake(opt.path)
+        test_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='deepfake', model_set_idx=None)
+        test_dataloder = DataLoader(test_dataset, batch_size=opt.per_gpu_eval_batch_size,\
+                                num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
+    elif opt.dataset=='M4':
+        dataset = load_M4(opt.path)
+        test_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='M4', model_set_idx=None)
+        test_dataloder = DataLoader(test_dataset, batch_size=opt.per_gpu_eval_batch_size,\
+                                num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
     preds_models = {}
 
     with torch.no_grad():
