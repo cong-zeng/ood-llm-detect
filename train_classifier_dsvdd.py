@@ -8,7 +8,7 @@ import os
 import argparse
 from transformers import AutoTokenizer
 from src.index import Indexer
-from utils.utils import compute_metrics,calculate_metrics
+from utils.utils import compute_metrics,calculate_metrics,best_threshold_by_f1
 import torch
 from src.dataset import PassagesDataset
 from torch.utils.data import DataLoader
@@ -28,16 +28,6 @@ from lightning.fabric.strategies import DDPStrategy
 from torch.utils.data.dataloader import default_collate
 from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, precision_score, recall_score, precision_recall_curve
 
-
-def best_threshold_by_f1(y_true, y_score):
-    precisions, recalls, thresholds = precision_recall_curve(y_true, y_score)
-    f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-8)
-
-    best_idx = np.argmax(f1_scores)
-    best_threshold = thresholds[best_idx]
-    best_f1 = f1_scores[best_idx]
-
-    return best_threshold, best_f1
 
 def collate_fn(batch):
     text,label,write_model,write_model_set = default_collate(batch)
@@ -270,13 +260,13 @@ def train(opt):
                 acc = accuracy_score(label_np, y_pred)
                 precision = precision_score(label_np, y_pred)
                 recall = recall_score(label_np, y_pred)
-                fi = f1_score(label_np, y_pred)
-                print(f"Val, AUC: {auc}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{fi}")
+                f1 = f1_score(label_np, y_pred)
+                print(f"Val, AUC: {auc}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
                 writer.add_scalar('val_auc', auc, epoch)
                 writer.add_scalar('val_acc', acc, epoch)
                 writer.add_scalar('val_precision', precision, epoch)
                 writer.add_scalar('val_recall', recall, epoch)
-                writer.add_scalar('val_f1', fi, epoch)
+                writer.add_scalar('val_f1', f1, epoch)
                 writer.add_scalar('val_threshold', threshold, epoch)
                 writer.add_scalar('val_f1', f1, epoch)
 
@@ -358,6 +348,9 @@ if __name__ == "__main__":
     parser.add_argument("--freeze_embedding_layer",action='store_true',help="freeze embedding layer")
     parser.add_argument("--one_loss",action='store_true',help="only use single contrastive loss")
     parser.add_argument("--only_classifier", action='store_true',help="only use classifier, no contrastive loss")
+
+    parser.add_argument("--method", type=str, choices=["simclr", "dsvdd", "hrn", "energy"], default="simclr", help="Method to use")
+    
     opt = parser.parse_args()
     tokenizer = AutoTokenizer.from_pretrained(opt.model_name)
     train(opt)

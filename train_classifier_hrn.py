@@ -12,8 +12,6 @@ from utils.utils import compute_metrics,calculate_metrics
 import torch
 from src.dataset import PassagesDataset
 from torch.utils.data import DataLoader
-# from src.simclr import SimCLR_Classifier,SimCLR_Classifier_SCL
-# from src.deep_SVVD import SimCLR_Classifier,SimCLR_Classifier_SCL
 from src.hrn import SimCLR_Classifier_SCL
 
 from lightning import Fabric
@@ -193,7 +191,7 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric: Fabric):
     return best_model, None, max_auc
 
 def train(opt):
-    # Initialize fabric and set up data loaders
+    # Initialize fabric 
     torch.set_float32_matmul_precision("medium")
     if opt.device_num>1:
         ddp_strategy = DDPStrategy(find_unused_parameters=True)
@@ -203,7 +201,6 @@ def train(opt):
     fabric.launch()
     
     # Set up tensorboard writer and save directory
-
     if (not opt.skip_train) and fabric.global_rank == 0 :
         for num in range(10000):
             if os.path.exists(os.path.join(opt.savedir,'{}_v{}'.format(opt.name,num)))==False:
@@ -341,6 +338,9 @@ if __name__ == "__main__":
     parser.add_argument("--freeze_embedding_layer",action='store_true',help="freeze embedding layer")
     parser.add_argument("--one_loss",action='store_true',help="only use single contrastive loss")
     parser.add_argument("--only_classifier", action='store_true',help="only use classifier, no contrastive loss")
+
+    parser.add_argument("--method", type=str, choices=["simclr", "dsvdd", "hrn", "energy"], default="simclr", help="Method to use")
+    
     opt = parser.parse_args()
     tokenizer = AutoTokenizer.from_pretrained(opt.model_name)
     train(opt)
