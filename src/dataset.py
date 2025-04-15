@@ -3,6 +3,7 @@ import numpy as np
 from utils.Deepfake_utils import deepfake_model_set,deepfake_name_dct
 from utils.Turing_utils import turing_model_set,turing_name_dct
 from utils.M4_utils import M4_model_set
+from utils.Raid_utils import raid_model_set,raid_name_dct
 
 class PassagesDataset(Dataset):
     def __init__(self, dataset, model_set_idx=None, mode='deepfake', need_ids=False):
@@ -27,6 +28,13 @@ class PassagesDataset(Dataset):
             for model_set_name,model_set in turing_name_dct.items():
                 for name in model_set:
                     self.model_name_set[name]=(cnt,turing_model_set[model_set_name])
+                    self.classes.append(name)
+                    cnt+=1
+        elif mode=='Raid':
+            cnt=0
+            for model_set_name,model_set in raid_name_dct.items():
+                for name in model_set:
+                    self.model_name_set[name]=(cnt,raid_model_set[model_set_name])
                     self.classes.append(name)
                     cnt+=1
         elif mode=='M4':
