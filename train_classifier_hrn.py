@@ -106,10 +106,8 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric: Fabric):
         avg_loss = 0
         pbar = enumerate(passages_dataloder)
 
-        if fabric.global_rank == 0:
-            if opt.one_loss:
-                print("Train with one loss!")     
-                print(" -------Training Model Set: {}--Model Set idx: {}-------".format(model_set_name, model_set_idx))  
+        if fabric.global_rank == 0:   
+            print(" -------Training Model Set: {}--Model Set idx: {}-------".format(model_set_name, model_set_idx))  
             pbar = tqdm(pbar, total = len(passages_dataloder))
             print(('\n' + '%11s' *(5)) % ('Epoch', 'GPU_mem', 'Cur_loss', 'avg_loss','lr'))
 
@@ -158,6 +156,7 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric: Fabric):
             pbar = enumerate(val_dataloder)
             if fabric.global_rank == 0:
                 pbar = tqdm(pbar, total = len(val_dataloder))
+                print(('\n' + '%11s' *(3)) % ('Epoch', 'GPU_mem', 'loss'))
                 test_labels, pred_list = [], []
                 print(" -------Validation Model Set: {}--Model Set idx: {}-------".format(model_set_name, model_set_idx))
 
@@ -173,23 +172,42 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric: Fabric):
                     pbar.set_description(
                             ('%11s' * 2 + '%11.4g') % 
                             (f'{model_set_idx}', mem, loss.item()))
-        
+            # use roc_auc_score and other metrics to evaluate the performance 
             if fabric.global_rank == 0:
                 pred_np = torch.cat(pred_list).view(-1)
                 label_np = torch.cat(test_labels).view(-1)
                 label_np = 1 - (torch.abs(torch.sign(label_np- model_set_idx)))
+
                 auc = roc_auc_score(label_np, pred_np)
-                print("Val AUC: ", auc)
-                writer.add_scalar('Val_AUC', auc, epoch)
-                if auc > max_auc:
-                    max_auc = auc
-                    torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_{model_set_name}_best.pth"))
-                    print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_{model_set_name}_best.pth")) 
-                writer.add_scalar('max_AUC', max_auc, epoch)
-                print("[Epoch %d/%d/%d]  [loss: %0.2f] [MaxAUC: %0.4f]" %
-                        (epoch + 1, opt.total_epoch, model_set_idx + 1, loss, max_auc))
+                # other metrics
+                threshold, f1 = best_threshold_by_f1(label_np, pred_np)
+                y_pred = np.where(pred_np>threshold,1,0)
+                acc = accuracy_score(label_np, y_pred)
+                precision = precision_score(label_np, y_pred)
+                recall = recall_score(label_np, y_pred)
+                f1 = f1_score(label_np, y_pred)
+                print(f"Val, AUC: {auc}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
+                writer.add_scalar('val_auc', auc, epoch)
+                writer.add_scalar('val_acc', acc, epoch)
+                writer.add_scalar('val_precision', precision, epoch)
+                writer.add_scalar('val_recall', recall, epoch)
+                writer.add_scalar('val_f1', f1, epoch)
+                writer.add_scalar('val_threshold', threshold, epoch)
+                writer.add_scalar('val_f1', f1, epoch)
+
         torch.cuda.empty_cache()
         fabric.barrier()
+
+        # Save model
+        if fabric.global_rank == 0:
+            if auc > max_auc:
+                max_auc = auc
+                torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_{model_set_name}_best.pth"))
+                print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_{model_set_name}_best.pth")) 
+            writer.add_scalar('max_AUC', max_auc, epoch)
+            print("[Epoch %d/%d/%d]  [loss: %0.2f] [MaxAUC: %0.4f]" %
+                    (epoch + 1, opt.total_epoch, model_set_idx + 1, loss, max_auc))
+
 
     # Return best model and best AUC
     best_model = SimCLR_Classifier_SCL(opt,fabric)
@@ -216,7 +234,7 @@ def train(opt):
                 break
         if os.path.exists(os.path.join(opt.savedir,'runs'))==False:
             os.makedirs(os.path.join(opt.savedir,'runs'))
-        
+        writer = SummaryWriter(os.path.join(opt.savedir,'runs'))
         #save opt to yaml
         opt_dict = vars(opt)
         with open(os.path.join(opt.savedir,'config.yaml'), 'w') as file:
@@ -294,6 +312,36 @@ def train(opt):
             # label_np = 1 - (torch.abs(torch.sign(label_np - model_set_idx)))
             auc = roc_auc_score(label_np, pred_np)
             print("Test AUC: ", auc)
+            # other metrics
+            threshold, f1 = best_threshold_by_f1(label_np, pred_np)
+            y_pred = np.where(pred_np>threshold,1,0)
+            acc = accuracy_score(label_np, y_pred)
+            precision = precision_score(label_np, y_pred)
+            recall = recall_score(label_np, y_pred)
+            f1 = f1_score(label_np, y_pred)
+            print(f"Test, AUC: {auc}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
+            writer.add_scalar('test_auc', auc, 0)
+            writer.add_scalar('test_acc', acc, 0)
+            writer.add_scalar('test_precision', precision, 0)
+            writer.add_scalar('test_recall', recall, 0)
+            writer.add_scalar('test_f1', f1, 0)
+            writer.add_scalar('test_threshold', threshold, 0)
+            writer.add_scalar('test_f1', f1, 0)
+            # Save test results
+            test_results = {
+                'predictions': pred_np,
+                'labels': label_np,
+                'auc': auc,
+                'acc': acc,
+                'precision': precision,
+                'recall': recall,
+                'f1': f1
+            }
+            test_results_path = os.path.join(opt.savedir, f"test_results_{model_set_name}.json")
+            with open(test_results_path, 'w') as f: 
+                json.dump(test_results, f)
+            print("Test results saved at: ", test_results_path)
+            # Save model predictions
             preds_models[model_set_idx] = pred_np
     
     torch.cuda.empty_cache()
