@@ -24,6 +24,7 @@ from utils.Turing_utils import load_Turing
 from utils.OUTFOX_utils import load_OUTFOX
 from utils.M4_utils import load_M4
 from utils.Deepfake_utils import load_deepfake
+from utils.raid_utils import load_raid
 from lightning.fabric.strategies import DDPStrategy
 from torch.utils.data.dataloader import default_collate
 from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, precision_score, recall_score, precision_recall_curve
@@ -81,6 +82,14 @@ def train(opt):
         machine_passages_dataset = PassagesDataset(machine_dataset[opt.database_name]+machine_dataset[opt.database_name.replace('train','dev')],mode='M4')
         
         val_dataset = PassagesDataset(dataset[opt.test_dataset_name],mode='M4')
+    elif opt.dataset=='raid':
+        dataset = load_raid()
+        passages_dataset = PassagesDataset(dataset[opt.database_name],mode='raid')
+        val_dataset = PassagesDataset(dataset[opt.test_dataset_name],mode='raid')
+
+        machine_dataset = load_raid(machine_text_only=True)
+        machine_passages_dataset = PassagesDataset(machine_dataset[opt.database_name],mode='raid')
+
 
     if opt.AA:
         opt.classifier_dim=len(passages_dataset.model_name_set)
