@@ -1,13 +1,21 @@
 DATA_PATH="data" #PATH for the data
 # Model_PATH="ckpt/M4_multilingual_best.pth" #PATH for the model ckpt
-Model_PATH="ckpt/Deepfake_best.pth" #PATH for the model ckpt
+# Model_PATH="ckpt/Deepfake_best.pth" #PATH for the model ckpt
+Model_PATH="runs/raid-roberta-base_v6/model_best.pth" #PATH for the model ckpt
 
 export CUDA_VISIBLE_DEVICES=0,1
-# deepfake
+# raid
 python test_knn.py --device_num 2 --batch_size 128 --max_K 5 --model_name princeton-nlp/unsup-simcse-roberta-base \
-                   --mode deepfake --database_path ${DATA_PATH}/Deepfake/cross_domains_cross_models --database_name 'train' \
-                   --test_dataset_path ${DATA_PATH}/Deepfake/cross_domains_cross_models --test_dataset_name 'test'\
-                   --model_path ${Model_PATH} --save_database --save_path database/deepfake
+                   --mode raid --database_name 'train' \
+                   --test_dataset_name 'test'\
+                   --model_path ${Model_PATH} --save_database --save_path database/raid
+
+
+# deepfake
+# python test_knn.py --device_num 2 --batch_size 128 --max_K 5 --model_name princeton-nlp/unsup-simcse-roberta-base \
+#                    --mode deepfake --database_path ${DATA_PATH}/Deepfake/cross_domains_cross_models --database_name 'train' \
+#                    --test_dataset_path ${DATA_PATH}/Deepfake/cross_domains_cross_models --test_dataset_name 'test'\
+#                    --model_path ${Model_PATH} --save_database --save_path database/deepfake
 
 # # TuringBench
 # python test_knn.py --device_num 8 --batch_size 128 --max_K 5 --model_name princeton-nlp/unsup-simcse-roberta-base \
