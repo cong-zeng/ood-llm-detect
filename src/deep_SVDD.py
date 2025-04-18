@@ -105,8 +105,10 @@ class SimCLR_Classifier_SCL(nn.Module):
                 outputs = self.model(encoded_batch)
                 c += outputs.sum(dim=0)
                 n_samples += outputs.shape[0]
+        if self.fabric.world_size > 1:
+            c = self.fabric.all_reduce(c, reduce_op="sum")
+            # torch.distributed.all_reduce(c, torch.distributed.ReduceOp.SUM)
         c /= n_samples
-        torch.distributed.all_reduce(c, torch.distributed.ReduceOp.SUM)
         # Normalize to the hypersphere surface.
         c = c / torch.norm(c)
         self.DeepSVDD.c = c
