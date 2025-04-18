@@ -15,6 +15,7 @@ from utils.Turing_utils import load_Turing
 from utils.Deepfake_utils import load_deepfake
 from utils.OUTFOX_utils import load_OUTFOX
 from utils.M4_utils import load_M4
+from utils.raid_utils import load_raid
 from src.dataset  import PassagesDataset
 from sklearn.metrics import roc_auc_score
 
@@ -99,6 +100,9 @@ def test(opt):
     elif opt.mode=='M4':
         database=load_M4(opt.database_path)[opt.database_name]+load_M4(opt.database_path)[opt.database_name.replace('train','dev')]
         test_database = load_M4(opt.test_dataset_path)[opt.test_dataset_name]
+    elif opt.mode=='raid':
+        database = load_raid()[opt.database_name]
+        test_database = load_raid()[opt.test_dataset_name]
         
     # database = load_deepfake('/home/heyongxin/LLM_detect_data/Deepfake_dataset/cross_domains_cross_models')['train']
     passage_dataset = PassagesDataset(database,mode=opt.mode,need_ids=True)
