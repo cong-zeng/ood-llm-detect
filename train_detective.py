@@ -325,10 +325,6 @@ def train(opt):
                 torch.save(model.state_dict(), os.path.join(opt.savedir,'model_classifier_{}.pth'.format(epoch)))
                 print('Save model to {}'.format(os.path.join(opt.savedir,'model_{}.pth'.format(epoch))), flush=True)
             
-            torch.save(model.get_encoder().state_dict(), os.path.join(opt.savedir,'model_last.pth'))
-            torch.save(model.state_dict(), os.path.join(opt.savedir,'model_classifier_last.pth'))
-            print('Save model to {}'.format(os.path.join(opt.savedir,'model_last.pth'.format(epoch))), flush=True)        
-        
         fabric.barrier()
         
 if __name__ == "__main__":
