@@ -23,12 +23,15 @@ from utils.Turing_utils import load_Turing
 from utils.OUTFOX_utils import load_OUTFOX
 from utils.M4_utils import load_M4
 from utils.Deepfake_utils import load_deepfake
+from utils.raid_utils import load_raid
+
 from lightning.fabric.strategies import DDPStrategy
 from torch.utils.data.dataloader import default_collate
 from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, precision_score, recall_score, precision_recall_curve
 
 from utils.Deepfake_utils import deepfake_model_set,deepfake_name_dct
 from utils.M4_utils import M4_model_set
+from utils.raid_utils import raid_model_set,raid_name_dct
 
 torch.random.manual_seed(42)
 np.random.seed(42)
@@ -62,6 +65,15 @@ def train_single_classifier(model_set_idx, model_set_name, opt, fabric: Fabric):
         val_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='M4', model_set_idx=None)
         val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
                             num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
+    elif opt.dataset=='raid':
+        dataset = load_raid()
+        passages_dataset = PassagesDataset(dataset[opt.database_name],mode='raid', model_set_idx=model_set_idx)
+        val_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='raid', model_set_idx=None)
+        passages_dataloder = DataLoader(passages_dataset, batch_size=opt.per_gpu_batch_size,\
+                                        num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
+        val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
+                                num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
+
         
     if opt.only_classifier:
         opt.a=opt.b=opt.c=0
@@ -247,6 +259,10 @@ def train(opt):
     elif opt.dataset=='M4':
         num_models = 5
         model_set_names = list(M4_model_set.keys())
+    elif opt.dataset=='raid':
+        num_models = len(raid_model_set) - 1
+        model_set_names = list(raid_model_set.keys())
+
     
     models = {}
 
@@ -276,6 +292,11 @@ def train(opt):
     elif opt.dataset=='M4':
         dataset = load_M4(opt.path)
         test_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='M4', model_set_idx=None)
+        test_dataloder = DataLoader(test_dataset, batch_size=opt.per_gpu_eval_batch_size,\
+                                num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
+    elif opt.dataset=='raid':
+        dataset = load_raid()
+        test_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='raid', model_set_idx=None)
         test_dataloder = DataLoader(test_dataset, batch_size=opt.per_gpu_eval_batch_size,\
                                 num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
     preds_models = {}
