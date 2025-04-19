@@ -30,3 +30,16 @@ def load_raid(machine_text_only=False):
             label = "0"
         data_new["test"].append((raid_test[i]["generation"], label, raid_test[i]["model"], i))
     return data_new
+
+def data_process(): 
+    raid = load_dataset("liamdugan/raid", split="train")
+    raid = raid.train_test_split(test_size=0.1)
+    raid_train = raid["train"]
+    raid_test = raid["test"].train_test_split(test_size=0.2)["test"]
+    raid_train = raid_train.filter(lambda input: input["attack"] == "none")
+    raid_train = raid_train.train_test_split(test_size=0.2)["train"]
+    
+    raid_train.push_to_hub("Shengkun/Raid_split", split="train")
+    raid_test.push_to_hub("Shengkun/Raid_split", split="test")
+
+data_process()
