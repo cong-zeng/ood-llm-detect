@@ -15,6 +15,7 @@ from utils.Turing_utils import load_Turing
 from utils.Deepfake_utils import load_deepfake
 from utils.OUTFOX_utils import load_OUTFOX
 from utils.M4_utils import load_M4
+from utils.raid_utils import load_raid
 from src.dataset  import PassagesDataset
 from sklearn.metrics import roc_auc_score
 
@@ -99,6 +100,9 @@ def test(opt):
     elif opt.mode=='M4':
         database=load_M4(opt.database_path)[opt.database_name]+load_M4(opt.database_path)[opt.database_name.replace('train','dev')]
         test_database = load_M4(opt.test_dataset_path)[opt.test_dataset_name]
+    elif opt.mode=='raid':
+        database = load_raid()[opt.database_name]
+        test_database = load_raid()[opt.test_dataset_name]
         
     # database = load_deepfake('/home/heyongxin/LLM_detect_data/Deepfake_dataset/cross_domains_cross_models')['train']
     passage_dataset = PassagesDataset(database,mode=opt.mode,need_ids=True)
@@ -131,7 +135,7 @@ def test(opt):
         test_labels=[str(test_labels[i]) for i in range(len(test_labels))]
         
         preds= {i: [] for i in range(1,opt.max_K+1)}
-        conf = []
+        conf = {i: [] for i in range(1,opt.max_K+1)}
         if len(test_embeddings.shape) == 1:
             test_embeddings = test_embeddings.reshape(1, -1)
         top_ids_and_scores = index.search_knn(test_embeddings, opt.max_K)
@@ -152,10 +156,10 @@ def test(opt):
                     
                 else:
                     preds[k].append('1')
-            if zero_num>one_num:
-                conf.append(1 - float(zero_num)/opt.max_K)
-            else:
-                conf.append(float(one_num)/opt.max_K)
+                if zero_num>one_num:
+                    conf[k].append(1 - float(zero_num)/k)
+                else:
+                    conf[k].append(float(one_num)/k)
         K_values = list(range(1, opt.max_K+1))
         human_recs = []
         machine_recs = []
@@ -164,11 +168,12 @@ def test(opt):
         precisions = []
         recalls = []
         f1_scores = []
-        print(f"AUC is {roc_auc_score(test_labels_int, conf)}")
+        aucs = []
 
         for k in range(1,opt.max_K+1):
             human_rec, machine_rec, avg_rec, acc, precision, recall, f1 = compute_metrics(test_labels, preds[k],test_ids)
-            print(f"K={k}, HumanRec: {human_rec}, MachineRec: {machine_rec}, AvgRec: {avg_rec}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
+            auc = roc_auc_score(test_labels_int, conf[k])
+            print(f"K={k}, HumanRec: {human_rec}, MachineRec: {machine_rec}, AvgRec: {avg_rec}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}, AUC:{auc}")
             human_recs.append(human_rec)
             machine_recs.append(machine_rec)
             avg_recs.append(avg_rec)
@@ -176,6 +181,7 @@ def test(opt):
             precisions.append(precision)
             recalls.append(recall)
             f1_scores.append(f1)
+            aucs.append(auc)
         
         fig, axs = plt.subplots(3, 3, figsize=(15, 15))
 
@@ -208,6 +214,10 @@ def test(opt):
         axs[2, 0].set_title('F1 Score')
         axs[2, 0].grid(True)
 
+        axs[2, 1].plot(K_values, aucs, marker='h', label='AUC')
+        axs[2, 1].set_title('AUC')
+        axs[2, 1].grid(True)
+
         # Hide empty subplots
         for i in range(2, 3):
             for j in range(1, 3):
@@ -219,7 +229,7 @@ def test(opt):
             if avg_recs[i]>avg_recs[max_ids]:
                 max_ids=i
         print(f"Find opt.max_K is {max_ids+1}")
-        print(f"HumanRec: {human_recs[max_ids]}, MachineRec: {machine_recs[max_ids]}, AvgRec: {avg_recs[max_ids]}, Acc:{accs[max_ids]}, Precision:{precisions[max_ids]}, Recall:{recalls[max_ids]}, F1:{f1_scores[max_ids]}")
+        print(f"HumanRec: {human_recs[max_ids]}, MachineRec: {machine_recs[max_ids]}, AvgRec: {avg_recs[max_ids]}, Acc:{accs[max_ids]}, Precision:{precisions[max_ids]}, Recall:{recalls[max_ids]}, F1:{f1_scores[max_ids]}, AUC:{aucs[max_ids]}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

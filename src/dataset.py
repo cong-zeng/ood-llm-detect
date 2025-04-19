@@ -2,15 +2,19 @@ from torch.utils.data import Dataset
 import numpy as np
 from utils.Deepfake_utils import deepfake_model_set,deepfake_name_dct
 from utils.Turing_utils import turing_model_set,turing_name_dct
+from utils.M4_utils import M4_model_set
+from utils.raid_utils import raid_model_set,raid_name_dct
 
 class PassagesDataset(Dataset):
-    def __init__(self, dataset, model_set_idx=None, val=False, mode='deepfake', need_ids=False):
+    def __init__(self, dataset, model_set_idx=None, mode='deepfake', need_ids=False):
         self.mode=mode
-        self.model_set_idx=model_set_idx
         self.dataset = dataset
         self.need_ids=need_ids
         self.classes=[]
-        self.model_name_set={}
+        self.model_name_set={}  # { "model_name": (model_idx, model_set_idx),
+                                # ... 
+                                # }
+        
 
         if mode=='deepfake':
             cnt=0
@@ -26,6 +30,21 @@ class PassagesDataset(Dataset):
                     self.model_name_set[name]=(cnt,turing_model_set[model_set_name])
                     self.classes.append(name)
                     cnt+=1
+        elif mode=='raid':
+            cnt=0
+            for model_set_name,model_set in raid_name_dct.items():
+                for name in model_set:
+                    self.model_name_set[name]=(cnt,raid_model_set[model_set_name])
+                    self.classes.append(name)
+                    cnt+=1
+        elif mode=='M4':
+            model_name=set()
+            for item in self.dataset:
+                model_name.add(item[2])
+            for i,name in enumerate(model_name):
+                self.model_name_set[name]=(i,M4_model_set[name])
+                self.classes.append(name)
+
         else:
             LLM_name=set()
             for item in self.dataset:
@@ -34,22 +53,21 @@ class PassagesDataset(Dataset):
                 self.model_name_set[name]=(i,i)
                 self.classes.append(name)
         
-        if self.model_set_idx is not None:
-            print(f" -------Loading {mode} dataset for model_set_idx:{self.model_set_idx} -------")
+        if model_set_idx is not None:
+            print(f" -------Loading {mode} dataset for model_set_idx:{model_set_idx} -------")
             self.dataset = []
             for data in dataset:
                 text,label,src,id = data
                 # From data's scr to model_idx model_set_idx 
                 write_model,write_model_set = self._scr_to_model(src)
 
-                if write_model_set != self.model_set_idx:
+                if write_model_set != model_set_idx:
                     continue
                 else:
                     self.dataset.append(data)
-        else:
-            print(f" -------Loading {mode} dataset, All model_set_idx, machine label 0, human label 1-------")
-        # print(f'Totally, there are {len(self.classes)} classes in {mode} dataset, the classes are {self.classes}')
-        print(f' -------Loaded {len(self.dataset)} samples -------')
+    
+        print(f'Totally, there are {len(self.classes)} classes, the classes are {self.classes}')
+        print(f'there are {len(self.dataset)} samples')
     
     def get_class(self):
         return self.classes

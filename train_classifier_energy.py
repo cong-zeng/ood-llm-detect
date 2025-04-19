@@ -4,11 +4,12 @@ import random
 random.seed(42)
 from tqdm import tqdm
 import numpy as np
+import json
 import os
 import argparse
 from transformers import AutoTokenizer
 from src.index import Indexer
-from utils.utils import compute_metrics,calculate_metrics
+from utils.utils import compute_metrics,calculate_metrics,best_threshold_by_f1
 import torch
 from src.dataset import PassagesDataset
 from torch.utils.data import DataLoader
@@ -25,11 +26,11 @@ from utils.Turing_utils import load_Turing
 from utils.OUTFOX_utils import load_OUTFOX
 from utils.M4_utils import load_M4
 from utils.Deepfake_utils import load_deepfake
+from utils.raid_utils import load_raid
 from lightning.fabric.strategies import DDPStrategy
 from torch.utils.data.dataloader import default_collate
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, precision_score, recall_score, precision_recall_curve
 
-from utils.Deepfake_utils import deepfake_model_set,deepfake_name_dct
 
 torch.random.manual_seed(42)
 np.random.seed(42)
@@ -56,36 +57,34 @@ def train(opt):
         fabric = Fabric(accelerator="cuda", precision="bf16-mixed", devices=opt.device_num)
     fabric.launch()
     
-    # Set up tensorboard writer and save directory
 
-    if (not opt.skip_train) and fabric.global_rank == 0 :
-        for num in range(10000):
-            if os.path.exists(os.path.join(opt.savedir,'{}_v{}'.format(opt.name,num)))==False:
-                opt.savedir=os.path.join(opt.savedir,'{}_v{}'.format(opt.name,num))
-                os.makedirs(opt.savedir)
-                break
-        if os.path.exists(os.path.join(opt.savedir,'runs'))==False:
-            os.makedirs(os.path.join(opt.savedir,'runs'))
-        
-        #save opt to yaml
-        opt_dict = vars(opt)
-        with open(os.path.join(opt.savedir,'config.yaml'), 'w') as file:
-            yaml.dump(opt_dict, file, sort_keys=False)
+    # load dataset and dataloader
+    if opt.dataset=='deepfake':
+        dataset = load_deepfake(opt.path)
+        passages_dataset = PassagesDataset(dataset[opt.database_name],mode='deepfake', model_set_idx=None)
+        passages_dataloder = DataLoader(passages_dataset, batch_size=opt.per_gpu_batch_size,\
+                                        num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
+        val_dataset = PassagesDataset(dataset[opt.valid_dataset_name], mode='deepfake', model_set_idx=None)
+        val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
+                                num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
+    elif opt.dataset=='M4':
+        dataset = load_M4(opt.path)
+        passages_dataset = PassagesDataset(dataset[opt.database_name]+dataset[opt.database_name.replace('train','dev')],mode='M4')
+        val_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='M4', model_set_idx=None)
 
-    # Train model 
-    dataset = load_deepfake(opt.path)
-
-    passages_dataset = PassagesDataset(dataset[opt.database_name],mode='deepfake', model_set_idx=None)
-
-    # Set up data loaders for training and validation
-    passages_dataloder = DataLoader(passages_dataset, batch_size=opt.per_gpu_batch_size,\
-                                     num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
-    # Load validation data
-    dataset = load_deepfake(opt.path)
-    val_dataset = PassagesDataset(dataset[opt.valid_dataset_name], val=True, mode='deepfake', model_set_idx=None)
-    val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
-                            num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
-
+        passages_dataloder = DataLoader(passages_dataset, batch_size=opt.per_gpu_batch_size,\
+                                        num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
+        val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
+                                num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)   
+    elif opt.dataset=='Raid':
+        dataset = load_raid()
+        passages_dataset = PassagesDataset(dataset[opt.database_name],mode='Raid', model_set_idx=None)
+        val_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='Raid', model_set_idx=None)
+        passages_dataloder = DataLoader(passages_dataset, batch_size=opt.per_gpu_batch_size,\
+                                        num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
+        val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
+                                num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
+    
     if opt.only_classifier:
         opt.a=opt.b=opt.c=0
         opt.d=1
@@ -108,8 +107,22 @@ def train(opt):
     passages_dataloder= fabric.setup_dataloaders(passages_dataloder)
     val_dataloder = fabric.setup_dataloaders(val_dataloder)
 
-    # Set up tensorboard writer
-    writer = SummaryWriter(os.path.join(opt.savedir,'runs'))
+    # Set up tensorboard writer and save directory
+    if (not opt.skip_train) and fabric.global_rank == 0 :
+        for num in range(10000):
+            if os.path.exists(os.path.join(opt.savedir,'{}_v{}'.format(opt.name,num)))==False:
+                opt.savedir=os.path.join(opt.savedir,'{}_v{}'.format(opt.name,num))
+                os.makedirs(opt.savedir)
+                break
+        if os.path.exists(os.path.join(opt.savedir,'runs'))==False:
+            os.makedirs(os.path.join(opt.savedir,'runs'))
+        writer = SummaryWriter(os.path.join(opt.savedir,'runs'))
+        #save opt to yaml
+        opt_dict = vars(opt)
+        with open(os.path.join(opt.savedir,'config.yaml'), 'w') as file:
+            yaml.dump(opt_dict, file, sort_keys=False)
+    
+
     # Set up optimizer and scheduler
     num_batches_per_epoch = len(passages_dataloder)
     print("num_batches_per_epoch, passage: ", len(passages_dataloder))
@@ -131,8 +144,6 @@ def train(opt):
         pbar = enumerate(passages_dataloder)
 
         if fabric.global_rank == 0:
-            if opt.one_loss:
-                print("Train with one loss!")     
             pbar = tqdm(pbar, total = len(passages_dataloder))
             print(('\n' + '%11s' *(4) + '%14s' * 3) % ('Epoch', 'GPU_mem','lr', 'Cur_loss', 'avg_loss', 'loss_classifiy', 'loss_energy'))
 
@@ -180,7 +191,7 @@ def train(opt):
             pbar = enumerate(val_dataloder)
             if fabric.global_rank == 0:
                 pbar = tqdm(pbar, total = len(val_dataloder))
-                print(('\n' + '%11s' *(3)) % ('Epoch', 'GPU_mem', 'loss'))
+                print(('\n' + '%11s' *(2)) % ('Epoch', 'GPU_mem'))
                 test_labels, energy_list = [], []
 
             for i, batch in pbar:
@@ -193,27 +204,62 @@ def train(opt):
                     energy_list.append(neg_energy.cpu().detach())
                     test_labels.append(k_outlabel.cpu().detach())
                     pbar.set_description(
-                            ('%11s' * 2 + '%11.4g') % 
-                            (f'{epoch + 1}/{opt.total_epoch}', mem, loss.item()))
-        
+                            ('%11s' * 2 ) % 
+                            (f'{epoch + 1}/{opt.total_epoch}', mem ))
+
+            # use roc_auc_score and other metrics to evaluate the performance 
             if fabric.global_rank == 0:
                 energy_np = torch.cat(energy_list).view(-1)
                 label_np = torch.cat(test_labels).view(-1)
 
                 auc = roc_auc_score(label_np, energy_np)
-                print("Val AUC: ", auc)
+                # other metrics
+                threshold, f1 = best_threshold_by_f1(label_np, energy_np)
+                y_pred = np.where(energy_np>threshold,1,0)
+                acc = accuracy_score(label_np, y_pred)
+                precision = precision_score(label_np, y_pred)
+                recall = recall_score(label_np, y_pred)
+                f1 = f1_score(label_np, y_pred)
+                print(f"Val, AUC: {auc}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
+                writer.add_scalar('val_auc', auc, epoch)
+                writer.add_scalar('val_acc', acc, epoch)
+                writer.add_scalar('val_precision', precision, epoch)
+                writer.add_scalar('val_recall', recall, epoch)
+                writer.add_scalar('val_f1', f1, epoch)
+                writer.add_scalar('val_threshold', threshold, epoch)
+                writer.add_scalar('val_f1', f1, epoch)
                 writer.add_scalar('Val_AUC', auc, epoch)
-                if auc > max_auc:
-                    max_auc = auc
-                    torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_energy_best.pth"))
-                    print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_energy_best.pth")) 
-                writer.add_scalar('max_AUC', max_auc, epoch)
-                print("[Epoch %d/%d]  [loss: %0.2f] [MaxAUC: %0.4f]" %
-                        (epoch + 1, opt.total_epoch, loss, max_auc))
         torch.cuda.empty_cache()
         fabric.barrier()
+        # save model
+        if fabric.global_rank == 0:
+            # save the best model
+            if auc > max_auc:
+                max_auc = auc
+                print("[Epoch %d/%d]  [loss: %0.2f] [MaxAUC: %0.4f]" % (epoch + 1, opt.total_epoch, loss, max_auc))
+                torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_energy_best.pth"))
+                print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_energy_best.pth")) 
+                # save the best test result
+                test_results = {
+                    'epoch': epoch,
+                    'auc': auc,
+                    'acc': acc,
+                    'precision': precision,
+                    'recall': recall,
+                    'f1': f1,
+                }
+                test_results_path = os.path.join(opt.savedir, f"test_results_{opt.dataset}_{opt.method}.json")
+                with open(test_results_path, 'w') as f:
+                    json.dump(test_results, f)
+                print("Test results saved at: ", test_results_path)
+            # save every 10 epochs`
+            if (epoch+1)%10==0:
+                torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_energy_epoch_{epoch+1}.pth"))
+                print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_energy_epoch_{epoch+1}.pth"))
 
-    
+            torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_energy_last.pth"))
+            print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_energy_last.pth")) 
+            
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -274,6 +320,10 @@ if __name__ == "__main__":
     parser.add_argument("--freeze_embedding_layer",action='store_true',help="freeze embedding layer")
     parser.add_argument("--one_loss",action='store_true',help="only use single contrastive loss")
     parser.add_argument("--only_classifier", action='store_true',help="only use classifier, no contrastive loss")
+
+
+    parser.add_argument("--method", type=str, choices=["simclr", "dsvdd", "hrn", "energy"], default="simclr", help="Method to use")
+
     opt = parser.parse_args()
     tokenizer = AutoTokenizer.from_pretrained(opt.model_name)
     train(opt)

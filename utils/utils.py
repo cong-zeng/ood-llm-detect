@@ -1,4 +1,4 @@
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, precision_recall_curve
 import numpy as np
 
 def find_top_n(embeddings,n,index,data):
@@ -97,3 +97,13 @@ def compute_metrics(labels, preds,ids=None):
     f1 = f1_score(labels, preds, pos_label='1')
     # return human_rec, machine_rec, avg_rec
     return (human_rec, machine_rec, avg_rec, acc, precision, recall, f1)
+
+def best_threshold_by_f1(y_true, y_score):
+    precisions, recalls, thresholds = precision_recall_curve(y_true, y_score)
+    f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-8)
+
+    best_idx = np.argmax(f1_scores)
+    best_threshold = thresholds[best_idx]
+    best_f1 = f1_scores[best_idx]
+
+    return best_threshold, best_f1
