@@ -76,10 +76,10 @@ def train(opt):
                                         num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
         val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
                                 num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)   
-    elif opt.dataset=='Raid':
+    elif opt.dataset=='raid':
         dataset = load_raid()
-        passages_dataset = PassagesDataset(dataset[opt.database_name],mode='Raid', model_set_idx=None)
-        val_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='Raid', model_set_idx=None)
+        passages_dataset = PassagesDataset(dataset[opt.database_name],mode='raid', model_set_idx=None)
+        val_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='raid', model_set_idx=None)
         passages_dataloder = DataLoader(passages_dataset, batch_size=opt.per_gpu_batch_size,\
                                         num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
         val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
