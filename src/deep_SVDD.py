@@ -9,7 +9,7 @@ from lightning import Fabric
 class DeepSVDD(nn.Module):
     '''Deep SVDD model for anomaly detection.
     '''
-    def __init__(self, objective, out_dim, R, c, nu: float, device, base_net):
+    def __init__(self, objective, out_dim, R, c, nu: float, device):
         super(DeepSVDD, self).__init__()
         self.device = device
         self.R = torch.tensor(R, device=self.device)
@@ -19,11 +19,9 @@ class DeepSVDD(nn.Module):
         self.objective = objective
         self.out_dim = out_dim
 
-        # Define a simple feed-forward neural network as the representation network.
-        self.net = base_net
 
-    def forward(self, x):
-        x = self.net(x)
+    def forward(self, x, net):
+        x = net(x)
         return x
     
     def compute_loss(self, outputs, machine_txt_idx, human_txt_idx):
@@ -65,8 +63,8 @@ class SimCLR_Classifier_SCL(nn.Module):
             state_dict = torch.load(opt.pth_path, map_location=self.device)
             self.model.load_state_dict(state_dict)
 
-        self.model = self.fabric.setup_module(self.model)
-        print("Model is on:", next(self.model.parameters()).device)
+        # self.model = self.fabric.setup_module(self.model)
+        # print("Model is on:", next(self.model.parameters()).device)
 
         # Additional hyperparameters.
         self.esp=torch.tensor(1e-6,device=self.device)
@@ -75,17 +73,21 @@ class SimCLR_Classifier_SCL(nn.Module):
         self.only_classifier=opt.only_classifier
 
         # Initialize DeepSVDD module.
+        self.R = torch.tensor(opt.R, device=self.device)
+        self.c = None
+        self.nu = opt.nu # nu (0, 1]
+        self.objective = opt.objective
         
-        self.DeepSVDD = DeepSVDD(
-            objective=opt.objective, 
-            out_dim=opt.out_dim, 
-            R=opt.R, 
-            c=None, 
-            nu=opt.nu, 
-            device=self.fabric.device,
-            base_net=self.model)
+        # No Need for this
+        # self.DeepSVDD = DeepSVDD(
+        #     objective=opt.objective, 
+        #     out_dim=opt.out_dim, 
+        #     R=opt.R, 
+        #     c=None, 
+        #     nu=opt.nu, 
+        #     device=self.fabric.device,)
         
-        self.DeepSVDD = self.fabric.setup_module(self.DeepSVDD)
+        # self.DeepSVDD = self.fabric.setup_module(self.DeepSVDD)
     
     def initialize_center_c(self,train_loader, eps=0.1):
         
@@ -111,8 +113,8 @@ class SimCLR_Classifier_SCL(nn.Module):
         c /= n_samples
         # Normalize to the hypersphere surface.
         c = c / torch.norm(c)
-        self.DeepSVDD.c = c
-        print('Center c initialized:',c)
+        self.c = c
+        # print('Center c initialized:',c)
 
 
     def get_encoder(self):
@@ -141,6 +143,25 @@ class SimCLR_Classifier_SCL(nn.Module):
 
         return logits_model
     
+    def compute_loss(self, outputs, machine_txt_idx, human_txt_idx):
+        machine_outputs = outputs[machine_txt_idx]
+        human_outputs = outputs[human_txt_idx]
+
+        dist_machine = torch.sum((machine_outputs - self.c) ** 2, dim=1)
+        dist_human = torch.sum((human_outputs - self.c) ** 2, dim=1)
+
+        avg_dist_machine = dist_machine.mean()
+        avg_dist_human = dist_human.mean()
+        dist = avg_dist_machine - avg_dist_human
+
+
+        if self.objective == 'soft-boundary':
+            scores = dist - self.R ** 2
+            loss = self.R ** 2 + (1 / self.nu) * torch.mean(torch.max(torch.zeros_like(scores), scores))
+        else:
+            loss = dist
+        return loss
+
     def forward(self, batch, indices1, indices2,label):
         """
         Forward pass of the model.
@@ -173,7 +194,7 @@ class SimCLR_Classifier_SCL(nn.Module):
         # Calculate DeepSVDD loss all sample.
         machine_txt_idx = (label == 0).view(-1)
         human_txt_idx = (label == 1).view(-1)
-        loss_DeepSVDD = self.DeepSVDD.compute_loss(q, machine_txt_idx, human_txt_idx)  
+        loss_DeepSVDD = self.compute_loss(q, machine_txt_idx, human_txt_idx)  
         
         # Compute contrastive loss.
         gt = torch.zeros(bsz, dtype=torch.long,device=logits_label.device)
@@ -188,6 +209,6 @@ class SimCLR_Classifier_SCL(nn.Module):
             return loss,loss_label,loss_DeepSVDD ,k,k_label
         else:
             # Gather outputs across devices during evaluation.
-            dist = torch.sum((k - self.DeepSVDD.c) ** 2, dim=1)
+            dist = torch.sum((k - self.c) ** 2, dim=1)
             return loss,dist,k,k_label
         

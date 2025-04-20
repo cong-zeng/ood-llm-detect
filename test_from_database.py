@@ -114,7 +114,7 @@ def test(opt):
         label_dict=load_pkl(os.path.join(opt.database_path,'label_dict.pkl'))
         test_labels_int = [test_labels[i] for i in range(len(test_labels))]
         test_labels=[str(test_labels[i]) for i in range(len(test_labels))]
-        conf = []
+        conf = {i: [] for i in range(1,opt.max_K+1)}
         preds= {i: [] for i in range(1,opt.max_K+1)}
         if len(test_embeddings.shape) == 1:
             test_embeddings = test_embeddings.reshape(1, -1)
@@ -135,10 +135,10 @@ def test(opt):
                     preds[k].append('0')
                 else:
                     preds[k].append('1')
-            if zero_num>one_num:
-                conf.append(1 - float(zero_num)/opt.max_K)
-            else:
-                conf.append(float(one_num)/opt.max_K)
+                if zero_num>one_num:
+                    conf[k].append(1 - float(zero_num)/opt.max_K)
+                else:
+                    conf[k].append(float(one_num)/opt.max_K)
         K_values = list(range(1, opt.max_K+1))
         human_recs = []
         machine_recs = []
@@ -147,19 +147,24 @@ def test(opt):
         precisions = []
         recalls = []
         f1_scores = []
-        print(f"AUC is {roc_auc_score(test_labels_int, conf)}")
+        # print(f"AUC is {roc_auc_score(test_labels_int, conf)}")
 
         for k in range(1,opt.max_K+1):
             human_rec, machine_rec, avg_rec, acc, precision, recall, f1 = compute_metrics(test_labels, preds[k],test_ids)
+            
+            test_labels_int = np.array(test_labels_int)
+            conf[k] = np.array(conf[k])
+            
             fpr, tpr, _ = roc_curve(test_labels_int, conf[k])
             roc_auc = auc(fpr, tpr)
 
-            precision, recall, _ = precision_recall_curve(test_labels_int, conf[k])
-            pr_auc = auc(recall, precision)
+            precision_, recall_, _ = precision_recall_curve(test_labels_int, conf[k])
+            pr_auc = auc(recall_, precision_)
 
             target_fpr = 0.05
             tpr_at_fpr_5 = np.interp(target_fpr, fpr, tpr)
             print(f"K={k}, HumanRec: {human_rec}, MachineRec: {machine_rec}, AvgRec: {avg_rec}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}, AUC:{roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5}")
+            
             human_recs.append(human_rec)
             machine_recs.append(machine_rec)
             avg_recs.append(avg_rec)
