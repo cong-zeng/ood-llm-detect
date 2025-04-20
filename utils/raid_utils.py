@@ -42,4 +42,5 @@ def data_process():
     raid_train.push_to_hub("Shengkun/Raid_split", split="train")
     raid_test.push_to_hub("Shengkun/Raid_split", split="test")
 
-data_process()
+if __name__ == "__main__":
+    data_process()
