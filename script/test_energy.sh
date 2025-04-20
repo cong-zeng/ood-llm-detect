@@ -1,7 +1,7 @@
 DATA_PATH="data" #PATH for the data
 # Model_PATH="ckpt/M4_multilingual_best.pth" #PATH for the model ckpt
 # Model_PATH="ckpt/Deepfake_best.pth" #PATH for the model ckpt
-Model_PATH="runs/deepfake-roberta-base_v6/model_classifier_best.pth" #PATH for the model ckpt
+Model_PATH="/home/shengkun/ood-llm-detect/runs/deepfake-roberta-base_v14/model_classifier_energy_best.pth" #PATH for the model ckpt
 
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5
 # raid
@@ -14,8 +14,9 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5
 # deepfake
 python test.py --device_num 6 --batch_size 128 --max_K 5 --model_name princeton-nlp/unsup-simcse-roberta-base \
                    --mode deepfake  \
-                   --ood_type deepsvdd \
+                   --ood_type energy \
                    --out_dim 768 \
+                   --classifier_dim 7\
                    --test_dataset_path ${DATA_PATH}/Deepfake/cross_domains_cross_models --test_dataset_name 'test'\
                    --model_path ${Model_PATH}
 
