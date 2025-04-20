@@ -14,7 +14,6 @@ class PassagesDataset(Dataset):
         self.model_name_set={}  # { "model_name": (model_idx, model_set_idx),
                                 # ... 
                                 # }
-        
 
         if mode=='deepfake':
             cnt=0

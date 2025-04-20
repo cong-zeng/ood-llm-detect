@@ -59,9 +59,9 @@ class SimCLR_Classifier_SCL(nn.Module):
         self.device=next(self.model.parameters()).device
 
         # Load a pretrained model if resume option is set.
-        if opt.resum:
-            state_dict = torch.load(opt.pth_path, map_location=self.device)
-            self.model.load_state_dict(state_dict)
+        # if opt.resum:
+        #     state_dict = torch.load(opt.pth_path, map_location=self.device)
+        #     self.model.load_state_dict(state_dict)
 
         # self.model = self.fabric.setup_module(self.model)
         # print("Model is on:", next(self.model.parameters()).device)
@@ -73,8 +73,8 @@ class SimCLR_Classifier_SCL(nn.Module):
         self.only_classifier=opt.only_classifier
 
         # Initialize DeepSVDD module.
-        self.R = torch.tensor(opt.R, device=self.device)
-        self.c = None
+        self.R = nn.Parameter(torch.tensor(opt.R))
+        self.c = nn.Parameter(torch.zeros(self.opt.out_dim))
         self.nu = opt.nu # nu (0, 1]
         self.objective = opt.objective
         
@@ -113,7 +113,7 @@ class SimCLR_Classifier_SCL(nn.Module):
         c /= n_samples
         # Normalize to the hypersphere surface.
         c = c / torch.norm(c)
-        self.c = c
+        self.c.data = c
         # print('Center c initialized:',c)
 
 
