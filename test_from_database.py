@@ -16,7 +16,7 @@ from utils.Deepfake_utils import load_deepfake
 from utils.OUTFOX_utils import load_OUTFOX
 from utils.M4_utils import load_M4
 from src.dataset  import PassagesDataset
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, roc_curve, auc, precision_recall_curve
 
 def infer(passages_dataloder,fabric,tokenizer,model):
     if fabric.global_rank == 0 :
@@ -151,7 +151,15 @@ def test(opt):
 
         for k in range(1,opt.max_K+1):
             human_rec, machine_rec, avg_rec, acc, precision, recall, f1 = compute_metrics(test_labels, preds[k],test_ids)
-            print(f"K={k}, HumanRec: {human_rec}, MachineRec: {machine_rec}, AvgRec: {avg_rec}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
+            fpr, tpr, _ = roc_curve(test_labels_int, conf[k])
+            roc_auc = auc(fpr, tpr)
+
+            precision, recall, _ = precision_recall_curve(test_labels_int, conf[k])
+            pr_auc = auc(recall, precision)
+
+            target_fpr = 0.05
+            tpr_at_fpr_5 = np.interp(target_fpr, fpr, tpr)
+            print(f"K={k}, HumanRec: {human_rec}, MachineRec: {machine_rec}, AvgRec: {avg_rec}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}, AUC:{roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5}")
             human_recs.append(human_rec)
             machine_recs.append(machine_rec)
             avg_recs.append(avg_rec)
