@@ -37,9 +37,9 @@ class SimCLR_Classifier_SCL(nn.Module):
         self.fabric = fabric
         self.model = TextEmbeddingModel(opt.model_name)
         self.device=self.model.model.device
-        if opt.resum:
-            state_dict = torch.load(opt.pth_path, map_location=self.device)
-            self.model.load_state_dict(state_dict)
+        # if opt.resum:
+        #     state_dict = torch.load(opt.pth_path, map_location=self.device)
+        #     self.model.load_state_dict(state_dict)
         self.esp=torch.tensor(1e-6,device=self.device)
         self.classifier = ClassificationHead(opt.projection_size, opt.classifier_dim)
         
@@ -127,4 +127,4 @@ class SimCLR_Classifier_SCL(nn.Module):
         else:
             energy = self.fabric.all_gather(energy).view(-1)
             neg_energy = -energy
-            return loss,neg_energy,k, is_id
+            return loss,neg_energy,k, 1 - k_label

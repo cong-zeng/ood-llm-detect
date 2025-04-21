@@ -28,7 +28,7 @@ from utils.Deepfake_utils import load_deepfake
 from utils.raid_utils import load_raid
 from lightning.fabric.strategies import DDPStrategy
 from torch.utils.data.dataloader import default_collate
-from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, precision_score, recall_score, precision_recall_curve
+from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, precision_score, recall_score, precision_recall_curve, auc, roc_curve
 
 
 def collate_fn(batch):
@@ -209,7 +209,7 @@ def train(opt):
             # (DeepSVDD Setting)Update hypersphere radius R on mini-batch distances 
             if opt.objective == "soft-boundary" and (epoch >= warm_up_n_epochs):
                 loss_DeepSVDD = fabric.all_gather(loss_DeepSVDD).mean() 
-                model.DeepSVDD.R.data = torch.tensor(get_radius(loss_DeepSVDD, model.DeepSVDD.nu), device=model.device)
+                model.R.data = torch.tensor(get_radius(loss_DeepSVDD, model.nu), device=model.device)
 
             # log
             mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'
@@ -247,7 +247,7 @@ def train(opt):
                 
                 # (DeepSVDD Setting)Update hypersphere radius R on mini-batch distances
                 if opt.objective == 'soft-boundary':
-                    out = out - model.DeepSVDD.R ** 2
+                    out = out - model.R ** 2
                 else:
                     out = out
                     
@@ -263,16 +263,25 @@ def train(opt):
             if fabric.global_rank == 0 :
                 pred_np = torch.cat(preds_list).view(-1).numpy()
                 label_np = torch.cat(test_labels).view(-1).numpy()
-                auc = roc_auc_score(label_np, pred_np)
+                # auc = roc_auc_score(label_np, pred_np)
                 # other metrics
+                fpr, tpr, _ = roc_curve(label_np, pred_np)
+                roc_auc = auc(fpr, tpr)
+
+                precision_, recall_, _ = precision_recall_curve(label_np, pred_np)
+                pr_auc = auc(recall_, precision_)
+
+                target_fpr = 0.05
+                tpr_at_fpr_5 = np.interp(target_fpr, fpr, tpr)
+
                 threshold, f1 = best_threshold_by_f1(label_np, pred_np)
                 y_pred = np.where(pred_np>threshold,1,0)
                 acc = accuracy_score(label_np, y_pred)
                 precision = precision_score(label_np, y_pred)
                 recall = recall_score(label_np, y_pred)
                 f1 = f1_score(label_np, y_pred)
-                print(f"Val, AUC: {auc}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
-                writer.add_scalar('val_auc', auc, epoch)
+                print(f"Val, AUC: {roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
+                writer.add_scalar('val_auc', roc_auc, epoch)
                 writer.add_scalar('val_acc', acc, epoch)
                 writer.add_scalar('val_precision', precision, epoch)
                 writer.add_scalar('val_recall', recall, epoch)
@@ -285,8 +294,8 @@ def train(opt):
         fabric.barrier()
         # save model
         if fabric.global_rank == 0:
-            if auc>max_auc:
-                max_auc=auc
+            if roc_auc>max_auc:
+                max_auc=roc_auc
                 torch.save(model.get_encoder().state_dict(), os.path.join(opt.savedir,'model_best.pth'))
                 torch.save(model.state_dict(), os.path.join(opt.savedir,'model_classifier_best.pth'))
                 print('Save model to {}'.format(os.path.join(opt.savedir,'model_best.pth'.format(epoch))), flush=True)
