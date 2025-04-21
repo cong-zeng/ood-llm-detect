@@ -73,8 +73,8 @@ class SimCLR_Classifier_SCL(nn.Module):
         self.only_classifier=opt.only_classifier
 
         # Initialize DeepSVDD module.
-        self.R = nn.Parameter(torch.tensor(opt.R))
-        self.c = nn.Parameter(torch.zeros(self.opt.out_dim))
+        # self.R = nn.Parameter(torch.tensor(opt.R))
+        self.c = nn.Parameter(torch.zeros(self.opt.out_dim), requires_grad=False)
         self.nu = opt.nu # nu (0, 1]
         self.objective = opt.objective
         
@@ -153,6 +153,7 @@ class SimCLR_Classifier_SCL(nn.Module):
         avg_dist_machine = dist_machine.mean()
         avg_dist_human = dist_human.mean()
         dist = avg_dist_machine - avg_dist_human
+        dist = F.softplus(avg_dist_machine - avg_dist_human)
 
 
         if self.objective == 'soft-boundary':

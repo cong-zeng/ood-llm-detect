@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from lightning import Fabric
 from tqdm import tqdm
 import argparse
-from src.deep_SVDD import SimCLR_Classifier_SCL
+# from src.deep_SVDD import SimCLR_Classifier_SCL
 from utils.Turing_utils import load_Turing
 from utils.Deepfake_utils import load_deepfake
 from utils.OUTFOX_utils import load_OUTFOX
@@ -64,6 +64,12 @@ def set_seed(seed):
     random.seed(seed)  # Python random module.
 
 def test(opt):
+    if opt.ood_type == "deepsvdd":
+        from src.deep_SVDD import SimCLR_Classifier_SCL
+    elif opt.ood_type == "energy":
+        from src.energy import SimCLR_Classifier_SCL
+    else:
+        AssertionError("Only support deepsvdd and energy")
     if opt.device_num>1:
         fabric = Fabric(accelerator="cuda",devices=opt.device_num,strategy='ddp')
     else:
@@ -71,10 +77,10 @@ def test(opt):
     fabric.launch()
     model = SimCLR_Classifier_SCL(opt, fabric)
     state_dict = torch.load(opt.model_path, map_location="cpu")
-    new_state_dict={}
-    for key in state_dict.keys():
-        if key.startswith('model.'):
-            new_state_dict[key[6:]]=state_dict[key]
+    # new_state_dict={}
+    # for key in state_dict.keys():
+    #     if key.startswith('model.'):
+    #         new_state_dict[key[6:]]=state_dict[key]
     model.load_state_dict(state_dict)
     tokenizer=model.model.tokenizer
     if opt.mode=='deepfake':
@@ -91,7 +97,7 @@ def test(opt):
     # database = load_deepfake('/home/heyongxin/LLM_detect_data/Deepfake_dataset/cross_domains_cross_models')['train']
     test_dataset = PassagesDataset(test_database,mode=opt.mode)
 
-    test_dataloder = DataLoader(test_dataset, batch_size=opt.batch_size, num_workers=opt.num_workers, pin_memory=True, collate_fn=collate_fn)
+    test_dataloder = DataLoader(test_dataset, batch_size=opt.batch_size, num_workers=opt.num_workers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
     test_dataloder=fabric.setup_dataloaders(test_dataloder)
     model=fabric.setup(model)
 
@@ -126,6 +132,8 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--embedding_dim', type=int, default=768)
+    parser.add_argument('--projection_size', type=int, default=768, help="Pretrained model output dim")
+
     parser.add_argument("--temperature", type=float, default=0.07, help="contrastive loss temperature")
 
     parser.add_argument('--a', type=float, default=1)
@@ -145,6 +153,8 @@ if __name__ == "__main__":
 
 
     parser.add_argument('--mode', type=str, default='deepfake', help="deepfake,MGT or MGTDetect_CoCo")
+    parser.add_argument('--ood_type', type=str, default='deepsvdd', help="deepsvdd, energy")
+
     parser.add_argument("--test_dataset_path", type=str, default="/home/heyongxin/LLM_detect_data/Deepfake_dataset/cross_domains_cross_models")
     parser.add_argument('--test_dataset_name', type=str, default='test', help="train,valid,test,test_ood")
     parser.add_argument("--attack", type=str, default="none", help="Attack type only for OUTFOX dataset, none,outfox,dipper")

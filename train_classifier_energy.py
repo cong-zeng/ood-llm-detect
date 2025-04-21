@@ -29,7 +29,7 @@ from utils.Deepfake_utils import load_deepfake
 from utils.raid_utils import load_raid
 from lightning.fabric.strategies import DDPStrategy
 from torch.utils.data.dataloader import default_collate
-from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, precision_score, recall_score, precision_recall_curve
+from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, precision_score, recall_score, precision_recall_curve,roc_curve,auc
 
 
 torch.random.manual_seed(42)
@@ -51,7 +51,7 @@ def train(opt):
     # Initialize fabric and set up data loaders
     torch.set_float32_matmul_precision("medium")
     if opt.device_num>1:
-        ddp_strategy = DDPStrategy(find_unused_parameters=True)
+        ddp_strategy = DDPStrategy()
         fabric = Fabric(accelerator="cuda", precision="bf16-mixed", devices=opt.device_num,strategy=ddp_strategy)#
     else:
         fabric = Fabric(accelerator="cuda", precision="bf16-mixed", devices=opt.device_num)
@@ -64,7 +64,7 @@ def train(opt):
         passages_dataset = PassagesDataset(dataset[opt.database_name],mode='deepfake', model_set_idx=None)
         passages_dataloder = DataLoader(passages_dataset, batch_size=opt.per_gpu_batch_size,\
                                         num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
-        val_dataset = PassagesDataset(dataset[opt.valid_dataset_name], mode='deepfake', model_set_idx=None)
+        val_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='deepfake', model_set_idx=None)
         val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
                                 num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
     elif opt.dataset=='M4':
@@ -92,6 +92,9 @@ def train(opt):
     
     # Initialize model
     model = SimCLR_Classifier_SCL(opt,fabric)
+    if opt.resum:
+        state_dict = torch.load(opt.pth_path, map_location="cpu")
+        model.model.load_state_dict(state_dict)
 
     if opt.freeze_embedding_layer:
         for name, param in model.model.named_parameters():
@@ -212,7 +215,15 @@ def train(opt):
                 energy_np = torch.cat(energy_list).view(-1)
                 label_np = torch.cat(test_labels).view(-1)
 
-                auc = roc_auc_score(label_np, energy_np)
+                # auc = roc_auc_score(label_np, energy_np)
+                fpr, tpr, _ = roc_curve(label_np, energy_np)
+                roc_auc = auc(fpr, tpr)
+
+                precision_, recall_, _ = precision_recall_curve(label_np, energy_np)
+                pr_auc = auc(recall_, precision_)
+
+                target_fpr = 0.05
+                tpr_at_fpr_5 = np.interp(target_fpr, fpr, tpr)
                 # other metrics
                 threshold, f1 = best_threshold_by_f1(label_np, energy_np)
                 y_pred = np.where(energy_np>threshold,1,0)
@@ -220,29 +231,29 @@ def train(opt):
                 precision = precision_score(label_np, y_pred)
                 recall = recall_score(label_np, y_pred)
                 f1 = f1_score(label_np, y_pred)
-                print(f"Val, AUC: {auc}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
-                writer.add_scalar('val_auc', auc, epoch)
+                print(f"Val, AUC: {roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5} Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
+                writer.add_scalar('val_auc', roc_auc, epoch)
                 writer.add_scalar('val_acc', acc, epoch)
                 writer.add_scalar('val_precision', precision, epoch)
                 writer.add_scalar('val_recall', recall, epoch)
                 writer.add_scalar('val_f1', f1, epoch)
                 writer.add_scalar('val_threshold', threshold, epoch)
                 writer.add_scalar('val_f1', f1, epoch)
-                writer.add_scalar('Val_AUC', auc, epoch)
+                writer.add_scalar('Val_AUC', roc_auc, epoch)
         torch.cuda.empty_cache()
         fabric.barrier()
         # save model
         if fabric.global_rank == 0:
             # save the best model
-            if auc > max_auc:
-                max_auc = auc
+            if roc_auc > max_auc:
+                max_auc = roc_auc
                 print("[Epoch %d/%d]  [loss: %0.2f] [MaxAUC: %0.4f]" % (epoch + 1, opt.total_epoch, loss, max_auc))
                 torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_energy_best.pth"))
                 print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_energy_best.pth")) 
                 # save the best test result
                 test_results = {
                     'epoch': epoch,
-                    'auc': auc,
+                    'auc': roc_auc,
                     'acc': acc,
                     'precision': precision,
                     'recall': recall,
