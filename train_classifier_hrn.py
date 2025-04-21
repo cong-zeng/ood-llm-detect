@@ -224,7 +224,7 @@ def train(opt):
     fabric.launch()
     
     # Set up tensorboard writer and save directory
-    if (not opt.skip_train) and fabric.global_rank == 0 :
+    if fabric.global_rank == 0 :
         for num in range(10000):
             if os.path.exists(os.path.join(opt.savedir,'{}_v{}'.format(opt.name,num)))==False:
                 opt.savedir=os.path.join(opt.savedir,'{}_v{}'.format(opt.name,num))
@@ -257,18 +257,7 @@ def train(opt):
         model_set_name = model_set_names[model_set_idx]
         print("Start Training Model Set: ", model_set_name)
 
-        if opt.skip_train:
-            print(f"Skipping training. Loading pre-trained model for {model_set_name}")
-            model = SimCLR_Classifier_SCL(opt,fabric)
-            model_path = os.path.join(opt.savedir, f"model_classifier_{model_set_name}_best.pth")
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"Model file not found: {model_path}")
-            model.load_state_dict(torch.load(model_path))
-            model = fabric.setup_module(model)
-        else:
-            model, pred_np, _ = train_single_classifier(model, model_set_idx, model_set_name, opt, fabric)
-            # model = fabric.setup_module(model)
-        # models[model_set_idx] = model
+        model, pred_np, _ = train_single_classifier(model, model_set_idx, model_set_name, opt, fabric)
     
     # Testing
     if opt.dataset=='deepfake':
@@ -394,8 +383,6 @@ if __name__ == "__main__":
 
     parser.add_argument("--resum", type=bool, default=False)
     parser.add_argument("--pth_path", type=str, default='', help="resume embedding model path")
-    
-    parser.add_argument("--skip_train", action='store_true', help="Skip training and load pre-trained models.")
 
     #google/flan-t5-base 768
     #mixedbread-ai/mxbai-embed-large-v1 1024
