@@ -28,7 +28,7 @@ class ClassificationHead(nn.Module):
         return x
 
 class SimCLR_Classifier_SCL(nn.Module):
-    def __init__(self, opt,fabric):
+    def __init__(self, opt, num_model, fabric):
         super(SimCLR_Classifier_SCL, self).__init__()
         
         self.temperature = opt.temperature
@@ -36,11 +36,13 @@ class SimCLR_Classifier_SCL(nn.Module):
         self.fabric = fabric
         self.model = TextEmbeddingModel(opt.model_name)
         self.device=self.model.model.device
-        if opt.resum:
-            state_dict = torch.load(opt.pth_path, map_location=self.device)
-            self.model.load_state_dict(state_dict)
+        # if opt.resum:
+        #     state_dict = torch.load(opt.pth_path, map_location=self.device)
+        #     self.model.load_state_dict(state_dict)
         self.esp=torch.tensor(1e-6,device=self.device)
-        self.classifier = ClassificationHead(opt.projection_size, opt.classifier_dim)
+        self.classifiers = nn.ModuleList(
+                ClassificationHead(opt.projection_size, opt.classifier_dim)  for _ in range(num_model)
+            )
         
         self.a=torch.tensor(opt.a,device=self.device)
         self.d=torch.tensor(opt.d,device=self.device)
@@ -94,7 +96,7 @@ class SimCLR_Classifier_SCL(nn.Module):
         gradient_penalty = ((grad.norm(2, dim=1) - 1) ** 12).mean()
         return gradient_penalty
     
-    def forward(self, batch, indices1, indices2,label):
+    def forward(self, batch, model_idx, indices1, indices2, label, run_all=False):
         # indices1 is model
         # label 1 is human, 0 is model
         # indices2 is model and human set 
@@ -116,27 +118,32 @@ class SimCLR_Classifier_SCL(nn.Module):
             gt = torch.zeros(bsz, dtype=torch.long,device=logits_label.device)
             loss_label = F.cross_entropy(logits_label, gt)
 
+        mainloss_p = 0.0
+        loss_pen = 0.0
+
         # Classifier loss with HRN gradient penalty
         if self.training:
             machine_txt_idx = (label == 0).view(-1)
             q_machine = q[machine_txt_idx]
-            out = self.classifier(q_machine).squeeze(-1)
+            out = self.classifiers[model_idx](q_machine).squeeze(-1)
             mainloss_p = torch.log(torch.sigmoid(out) + self.esp).mean()
-            loss_pen = self._calc_gradient_penalty(self.classifier, q_machine, q_machine)
-        else:
-            out = self.classifier(k).squeeze(-1)
-            mainloss_p = torch.log(torch.sigmoid(out) + self.esp).mean()
-
-            loss_pen = torch.tensor(0,device=self.device)
+            loss_pen = self._calc_gradient_penalty(self.classifiers[model_idx], q_machine, q_machine)
         loss_classify = -mainloss_p + 0.1 * loss_pen
 
 
         # Total loss
         loss = self.a*loss_label+self.d*loss_classify
-
+        scores = 0.0
         if self.training:
             return loss,loss_label,loss_classify,k,k_label
-        
         else:
-            scores = torch.sigmoid(out)
-            return loss,scores,k,k_label
+            if not run_all:
+                out = self.classifiers[model_idx](k).squeeze(-1)
+                scores = torch.sigmoid(out)
+            else:
+                for classifier in self.classifiers:
+                    score = classifier(k)
+                    scores += score
+                scores = scores / len(self.classifiers)
+
+            return loss,scores,k, k_index2, k_label

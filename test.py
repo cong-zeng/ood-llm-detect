@@ -35,7 +35,7 @@ def collate_fn(batch):
         )
     return encoded_batch,label,write_model,write_model_set
 
-def infer(passages_dataloder,fabric,tokenizer,model):
+def infer(passages_dataloder,fabric,tokenizer,model,opt):
     if fabric.global_rank == 0 :
         passages_dataloder=tqdm(passages_dataloder,total=len(passages_dataloder))
     model.model.eval()
@@ -49,7 +49,12 @@ def infer(passages_dataloder,fabric,tokenizer,model):
             # output = model(**encoded_batch).last_hidden_state
             # embeddings = pooling(output, encoded_batch)  
             # print(encoded_batch)
-            loss, out, k_out, k_outlabel = model(encoded_batch, write_model, write_model_set,label)
+            if opt.ood_type != "hrn":
+                loss, out, k_out, k_outlabel = model(encoded_batch, write_model, write_model_set,label)
+            else:
+                scores = 0.0
+                loss, scores, k_out, _, k_outlabel = model(encoded_batch, 0, write_model, write_model_set,label, run_all=True)
+                out = 1 - scores
             # print(encoded_batch['input_ids'].shape)
             if fabric.global_rank == 0 :
                 preds_list.append(out.cpu())
@@ -68,14 +73,16 @@ def test(opt):
         from src.deep_SVDD import SimCLR_Classifier_SCL
     elif opt.ood_type == "energy":
         from src.energy import SimCLR_Classifier_SCL
+    elif opt.ood_type == "hrn":
+        from src.hrn import SimCLR_Classifier_SCL
     else:
-        AssertionError("Only support deepsvdd and energy")
+        AssertionError("Only support deepsvdd, hrn and energy")
     if opt.device_num>1:
         fabric = Fabric(accelerator="cuda",devices=opt.device_num,strategy='ddp')
     else:
         fabric = Fabric(accelerator="cuda",devices=opt.device_num)
     fabric.launch()
-    model = SimCLR_Classifier_SCL(opt, fabric)
+    model = SimCLR_Classifier_SCL(opt, opt.num_models, fabric)
     state_dict = torch.load(opt.model_path, map_location="cpu")
     # new_state_dict={}
     # for key in state_dict.keys():
@@ -101,7 +108,7 @@ def test(opt):
     test_dataloder=fabric.setup_dataloaders(test_dataloder)
     model=fabric.setup(model)
 
-    preds_list, test_labels = infer(test_dataloder,fabric,tokenizer,model)
+    preds_list, test_labels = infer(test_dataloder,fabric,tokenizer,model,opt=opt)
     fabric.barrier()
 
     if fabric.global_rank == 0:
@@ -131,6 +138,7 @@ if __name__ == "__main__":
     parser.add_argument('--device_num', type=int, default=8)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--num_workers', type=int, default=8)
+    parser.add_argument('--num_models', type=int, default=6)
     parser.add_argument('--embedding_dim', type=int, default=768)
     parser.add_argument('--projection_size', type=int, default=768, help="Pretrained model output dim")
 
