@@ -30,7 +30,7 @@ from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, precision_s
 
 from utils.Deepfake_utils import deepfake_model_set,deepfake_name_dct
 from utils.M4_utils import M4_model_set
-from utils.raid_utils import raid_model_set
+from utils.raid_utils import raid_model_set,raid_name_dct
 
 torch.random.manual_seed(42)
 np.random.seed(42)

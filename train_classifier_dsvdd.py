@@ -4,6 +4,7 @@ import random
 random.seed(42)
 from tqdm import tqdm
 import numpy as np
+import json
 import os
 import argparse
 from transformers import AutoTokenizer
@@ -299,6 +300,19 @@ def train(opt):
                 torch.save(model.get_encoder().state_dict(), os.path.join(opt.savedir,'model_best.pth'))
                 torch.save(model.state_dict(), os.path.join(opt.savedir,'model_classifier_best.pth'))
                 print('Save model to {}'.format(os.path.join(opt.savedir,'model_best.pth'.format(epoch))), flush=True)
+                # save the best test result
+                test_results = {
+                    'epoch': epoch,
+                    'auc': auc,
+                    'acc': acc,
+                    'precision': precision,
+                    'recall': recall,
+                    'f1': f1,
+                }
+                test_results_path = os.path.join(opt.savedir, f"test_results_{opt.dataset}_{opt.method}.json")
+                with open(test_results_path, 'w') as f:
+                    json.dump(test_results, f, indent=4)
+                print(f"Best test results saved to {test_results_path}")
             
             if epoch%10==0:
                 torch.save(model.get_encoder().state_dict(), os.path.join(opt.savedir,'model_{}.pth'.format(epoch)))
