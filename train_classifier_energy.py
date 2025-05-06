@@ -51,7 +51,7 @@ def train(opt):
     # Initialize fabric and set up data loaders
     torch.set_float32_matmul_precision("medium")
     if opt.device_num>1:
-        ddp_strategy = DDPStrategy()
+        ddp_strategy = DDPStrategy(find_unused_parameters=True)
         fabric = Fabric(accelerator="cuda", precision="bf16-mixed", devices=opt.device_num,strategy=ddp_strategy)#
     else:
         fabric = Fabric(accelerator="cuda", precision="bf16-mixed", devices=opt.device_num)
@@ -98,9 +98,9 @@ def train(opt):
 
     if opt.freeze_embedding_layer:
         for name, param in model.model.named_parameters():
-            param.requires_grad=False
-            # if 'emb' in name:
-                # param.requires_grad=False
+            # param.requires_grad=False
+            if 'emb' in name:
+                param.requires_grad=False
                 
     if opt.d==0:
         for name, param in model.named_parameters():
@@ -172,7 +172,7 @@ def train(opt):
             # backward pass and optimization
             avg_loss = (avg_loss * i + loss.item()) / (i+1)
             fabric.backward(loss) 
-            # fabric.clip_gradients(model, optimizer, max_norm=1.0, norm_type=2)
+            fabric.clip_gradients(model, optimizer, max_norm=1.0, norm_type=2)
             optimizer.step() 
 
             # log
@@ -224,7 +224,6 @@ def train(opt):
 
                 target_fpr = 0.05
                 tpr_at_fpr_5 = np.interp(target_fpr, fpr, tpr)
-
                 target_tpr = 0.95                               # the TPR you care about
                 fpr_at_tpr_95 = np.interp(target_tpr, tpr, fpr)
                 # other metrics

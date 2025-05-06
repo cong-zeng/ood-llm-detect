@@ -148,12 +148,14 @@ class SimCLR_Classifier_SCL(nn.Module):
         human_outputs = outputs[human_txt_idx]
 
         dist_machine = torch.sum((machine_outputs - self.c) ** 2, dim=1)
-        dist_human = torch.sum((human_outputs - self.c) ** 2, dim=1)
+        diff = human_outputs.float() - self.c.float()
+        squared_diff = diff ** 2
+        dist_human = torch.clamp(torch.sum(squared_diff, dim=1), max=1e6)
 
         avg_dist_machine = dist_machine.mean()
-        avg_dist_human = dist_human.mean()
+        avg_dist_human = dist_human.mean().to(human_outputs.dtype)
         dist = avg_dist_machine - avg_dist_human
-        dist = F.softplus(avg_dist_machine - avg_dist_human)
+        # dist = F.softplus(avg_dist_machine - avg_dist_human)
 
 
         if self.objective == 'soft-boundary':
@@ -196,6 +198,7 @@ class SimCLR_Classifier_SCL(nn.Module):
         machine_txt_idx = (label == 0).view(-1)
         human_txt_idx = (label == 1).view(-1)
         loss_DeepSVDD = self.compute_loss(q, machine_txt_idx, human_txt_idx)  
+        
         
         # Compute contrastive loss.
         gt = torch.zeros(bsz, dtype=torch.long,device=logits_label.device)

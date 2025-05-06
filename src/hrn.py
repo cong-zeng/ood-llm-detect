@@ -129,6 +129,9 @@ class SimCLR_Classifier_SCL(nn.Module):
             mainloss_p = torch.log(torch.sigmoid(out) + self.esp).mean()
             loss_pen = self._calc_gradient_penalty(self.classifiers[model_idx], q_machine, q_machine)
         loss_classify = -mainloss_p + 0.1 * loss_pen
+        # For raid
+        # loss_classify = -mainloss_p + 1 * loss_pen
+
 
 
         # Total loss
@@ -142,7 +145,7 @@ class SimCLR_Classifier_SCL(nn.Module):
                 scores = torch.sigmoid(out)
             else:
                 for classifier in self.classifiers:
-                    score = classifier(k)
+                    score = torch.sigmoid(classifier(k))
                     scores += score
                 scores = scores / len(self.classifiers)
 

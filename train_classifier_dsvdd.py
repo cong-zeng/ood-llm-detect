@@ -121,7 +121,7 @@ def train(opt):
                 param.requires_grad=False
 
     passages_dataloder,val_dataloder, machine_passages_dataloder = fabric.setup_dataloaders(passages_dataloder,val_dataloder, machine_passages_dataloder)
-    
+
     if fabric.global_rank == 0 :
         for num in range(10000):
             if os.path.exists(os.path.join(opt.savedir,'{}_v{}'.format(opt.name,num)))==False:
@@ -151,7 +151,6 @@ def train(opt):
     schedule = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, total_steps, eta_min=lr/10)
     # model, optimizer = fabric.setup(model, optimizer)
     model = fabric.setup_module(model)
-
     # (DeepSVDD Setting)
     model.mark_forward_method('initialize_center_c')
 

@@ -1,14 +1,15 @@
 from datasets import load_dataset
 
-raid_name_dct = {'OpenAI-GPT': ["chatgpt", "gpt4", "gpt3", "gpt2"],
+raid_name_dct = {'GPT': ["gpt3", "gpt2"],
+                 'ChatGPT': ["chatgpt", "gpt4"],
                  "Meta-LLaMA": ["llama-chat"],
                  "Mistral": ["mistral", "mistral-chat"],
                  "MPT": ["mpt", "mpt-chat"],
                  "Cohere": ["cohere", "cohere-chat"],
                  "human": ["human"]}
 
-raid_model_set ={'OpenAI-GPT':0,'Meta-LLaMA':1,'MPT':2,'Cohere':3,\
-            'Mistral':4,'human':5}
+raid_model_set ={'GPT':0, 'ChatGPT':1, 'Meta-LLaMA':2,'MPT':3,'Cohere':4,\
+            'Mistral':5,'human':6}
 
 def load_raid(machine_text_only=False):
     data_new = {"train": [], "test": []}
