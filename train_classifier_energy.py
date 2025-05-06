@@ -51,7 +51,7 @@ def train(opt):
     # Initialize fabric and set up data loaders
     torch.set_float32_matmul_precision("medium")
     if opt.device_num>1:
-        ddp_strategy = DDPStrategy()
+        ddp_strategy = DDPStrategy(find_unused_parameters=True)
         fabric = Fabric(accelerator="cuda", precision="bf16-mixed", devices=opt.device_num,strategy=ddp_strategy)#
     else:
         fabric = Fabric(accelerator="cuda", precision="bf16-mixed", devices=opt.device_num)
@@ -76,10 +76,10 @@ def train(opt):
                                         num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
         val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
                                 num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)   
-    elif opt.dataset=='Raid':
+    elif opt.dataset=='raid':
         dataset = load_raid()
-        passages_dataset = PassagesDataset(dataset[opt.database_name],mode='Raid', model_set_idx=None)
-        val_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='Raid', model_set_idx=None)
+        passages_dataset = PassagesDataset(dataset[opt.database_name],mode='raid', model_set_idx=None)
+        val_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='raid', model_set_idx=None)
         passages_dataloder = DataLoader(passages_dataset, batch_size=opt.per_gpu_batch_size,\
                                         num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
         val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
@@ -98,9 +98,9 @@ def train(opt):
 
     if opt.freeze_embedding_layer:
         for name, param in model.model.named_parameters():
-            param.requires_grad=False
-            # if 'emb' in name:
-                # param.requires_grad=False
+            # param.requires_grad=False
+            if 'emb' in name:
+                param.requires_grad=False
                 
     if opt.d==0:
         for name, param in model.named_parameters():
@@ -172,7 +172,7 @@ def train(opt):
             # backward pass and optimization
             avg_loss = (avg_loss * i + loss.item()) / (i+1)
             fabric.backward(loss) 
-            # fabric.clip_gradients(model, optimizer, max_norm=1.0, norm_type=2)
+            fabric.clip_gradients(model, optimizer, max_norm=1.0, norm_type=2)
             optimizer.step() 
 
             # log
@@ -224,6 +224,8 @@ def train(opt):
 
                 target_fpr = 0.05
                 tpr_at_fpr_5 = np.interp(target_fpr, fpr, tpr)
+                target_tpr = 0.95                               # the TPR you care about
+                fpr_at_tpr_95 = np.interp(target_tpr, tpr, fpr)
                 # other metrics
                 threshold, f1 = best_threshold_by_f1(label_np, energy_np)
                 y_pred = np.where(energy_np>threshold,1,0)
@@ -231,7 +233,7 @@ def train(opt):
                 precision = precision_score(label_np, y_pred)
                 recall = recall_score(label_np, y_pred)
                 f1 = f1_score(label_np, y_pred)
-                print(f"Val, AUC: {roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5} Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
+                print(f"Val, AUC: {roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5}, fpr_at_tpr_95: {fpr_at_tpr_95}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
                 writer.add_scalar('val_auc', roc_auc, epoch)
                 writer.add_scalar('val_acc', acc, epoch)
                 writer.add_scalar('val_precision', precision, epoch)

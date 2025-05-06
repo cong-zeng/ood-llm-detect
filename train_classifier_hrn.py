@@ -23,12 +23,14 @@ from utils.Turing_utils import load_Turing
 from utils.OUTFOX_utils import load_OUTFOX
 from utils.M4_utils import load_M4
 from utils.Deepfake_utils import load_deepfake
+from utils.raid_utils import load_raid
 from lightning.fabric.strategies import DDPStrategy
 from torch.utils.data.dataloader import default_collate
 from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, precision_score, recall_score, precision_recall_curve, auc, roc_curve
 
 from utils.Deepfake_utils import deepfake_model_set,deepfake_name_dct
 from utils.M4_utils import M4_model_set
+from utils.raid_utils import raid_model_set
 
 torch.random.manual_seed(42)
 np.random.seed(42)
@@ -51,7 +53,7 @@ def train_single_classifier(model, model_set_idx, model_set_name, opt, fabric: F
         passages_dataset = PassagesDataset(dataset[opt.database_name],mode='deepfake', model_set_idx=model_set_idx)
         passages_dataloder = DataLoader(passages_dataset, batch_size=opt.per_gpu_batch_size,\
                                      num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
-        val_dataset = PassagesDataset(dataset[opt.valid_dataset_name], mode='deepfake', model_set_idx=None)
+        val_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='deepfake', model_set_idx=None)
         val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
                             num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
     elif opt.dataset=='M4':
@@ -62,6 +64,14 @@ def train_single_classifier(model, model_set_idx, model_set_name, opt, fabric: F
         val_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='M4', model_set_idx=None)
         val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
                             num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
+    elif opt.dataset=='raid':
+        dataset = load_raid()
+        passages_dataset = PassagesDataset(dataset[opt.database_name],mode='raid', model_set_idx=model_set_idx)
+        val_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='raid', model_set_idx=None)
+        passages_dataloder = DataLoader(passages_dataset, batch_size=opt.per_gpu_batch_size,\
+                                        num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
+        val_dataloder = DataLoader(val_dataset, batch_size=opt.per_gpu_eval_batch_size,\
+                                num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=True,collate_fn=collate_fn)
         
     if opt.only_classifier:
         opt.a=opt.b=opt.c=0
@@ -245,6 +255,9 @@ def train(opt):
     elif opt.dataset=='M4':
         num_models = 5
         model_set_names = list(M4_model_set.keys())
+    elif opt.dataset=='raid':
+        num_models = len(raid_model_set) - 1
+        model_set_names = list(raid_model_set.keys())
     
     models = {}
     model = SimCLR_Classifier_SCL(opt, num_models, fabric)
@@ -268,6 +281,11 @@ def train(opt):
     elif opt.dataset=='M4':
         dataset = load_M4(opt.path)
         test_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='M4', model_set_idx=None)
+        test_dataloder = DataLoader(test_dataset, batch_size=opt.per_gpu_eval_batch_size,\
+                                num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
+    elif opt.dataset=='raid':
+        dataset = load_raid()
+        test_dataset = PassagesDataset(dataset[opt.test_dataset_name], mode='raid', model_set_idx=None)
         test_dataloder = DataLoader(test_dataset, batch_size=opt.per_gpu_eval_batch_size,\
                                 num_workers=opt.num_workers, pin_memory=True,shuffle=True,drop_last=False,collate_fn=collate_fn)
     preds_models = {}
@@ -310,6 +328,8 @@ def train(opt):
 
             target_fpr = 0.05
             tpr_at_fpr_5 = np.interp(target_fpr, fpr, tpr)
+            target_tpr = 0.95                               # the TPR you care about
+            fpr_at_tpr_95 = np.interp(target_tpr, tpr, fpr)
             # other metrics
             threshold, f1 = best_threshold_by_f1(label_np, pred_np)
             y_pred = np.where(pred_np>threshold,1,0)
@@ -317,7 +337,7 @@ def train(opt):
             precision = precision_score(label_np, y_pred)
             recall = recall_score(label_np, y_pred)
             f1 = f1_score(label_np, y_pred)
-            print(f"Test, AUC:{roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
+            print(f"Test, AUC:{roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5},fpr_at_tpr_95: {fpr_at_tpr_95}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
 
             # Save test results
             test_results = {

@@ -32,10 +32,10 @@ python test.py --device_num 6 --batch_size 128 --max_K 5 --model_name princeton-
 #                    --model_path ${Model_PATH} --save_database --save_path database/M4-monolingual
 
 # # M4-multilingual
-# python test_dsvdd.py --device_num 2 --batch_size 128 --max_K 5 --model_name princeton-nlp/unsup-simcse-roberta-base \
-#                    --mode M4 --database_path ${DATA_PATH}/SemEval2024-M4/SubtaskA --database_name 'multilingual_train' \
-#                    --test_dataset_path ${DATA_PATH}/SemEval2024-M4/SubtaskA --test_dataset_name 'multilingual_test'\
-#                    --model_path ${Model_PATH} --save_database --save_path database/M4-multilingual
+python test_dsvdd.py --device_num 6 --batch_size 128 --max_K 5 --model_name princeton-nlp/unsup-simcse-roberta-base \
+                   --mode M4 --database_path ${DATA_PATH}/SemEval2024-M4/SubtaskA --database_name 'multilingual_train' \
+                   --test_dataset_path ${DATA_PATH}/SemEval2024-M4/SubtaskA --test_dataset_name 'multilingual_test'\
+                   --model_path ${Model_PATH} --save_database --save_path database/M4-multilingual
 
 # # OUTFOX,attack:none,outfox,dipper
 # python test_dsvdd.py --device_num 8 --batch_size 128 --max_K 51 --model_name princeton-nlp/unsup-simcse-roberta-base \

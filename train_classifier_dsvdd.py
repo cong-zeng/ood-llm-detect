@@ -120,7 +120,7 @@ def train(opt):
                 param.requires_grad=False
 
     passages_dataloder,val_dataloder, machine_passages_dataloder = fabric.setup_dataloaders(passages_dataloder,val_dataloder, machine_passages_dataloder)
-    
+
     if fabric.global_rank == 0 :
         for num in range(10000):
             if os.path.exists(os.path.join(opt.savedir,'{}_v{}'.format(opt.name,num)))==False:
@@ -150,7 +150,6 @@ def train(opt):
     schedule = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, total_steps, eta_min=lr/10)
     # model, optimizer = fabric.setup(model, optimizer)
     model = fabric.setup_module(model)
-
     # (DeepSVDD Setting)
     model.mark_forward_method('initialize_center_c')
 
@@ -272,6 +271,8 @@ def train(opt):
 
                 target_fpr = 0.05
                 tpr_at_fpr_5 = np.interp(target_fpr, fpr, tpr)
+                target_tpr = 0.95                               # the TPR you care about
+                fpr_at_tpr_95 = np.interp(target_tpr, tpr, fpr)
 
                 threshold, f1 = best_threshold_by_f1(label_np, pred_np)
                 y_pred = np.where(pred_np>threshold,1,0)
@@ -279,7 +280,7 @@ def train(opt):
                 precision = precision_score(label_np, y_pred)
                 recall = recall_score(label_np, y_pred)
                 f1 = f1_score(label_np, y_pred)
-                print(f"Val, AUC: {roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
+                print(f"Val, AUC: {roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5}, fpr_at_tpr_95: {fpr_at_tpr_95}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
                 writer.add_scalar('val_auc', roc_auc, epoch)
                 writer.add_scalar('val_acc', acc, epoch)
                 writer.add_scalar('val_precision', precision, epoch)

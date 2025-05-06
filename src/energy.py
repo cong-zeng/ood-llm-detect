@@ -112,8 +112,8 @@ class SimCLR_Classifier_SCL(nn.Module):
         logits_energy = self.classifier(q)
         energy = -torch.logsumexp(logits_energy, dim=1)
         
-        m_in = -25.0
-        m_out = -7.0
+        m_in = -27.0
+        m_out = -5.0
         is_id = 1 - label.view(-1) # 1 = ID, 0 = OOD
 
         loss_energy_in = F.relu(energy - m_in) ** 2
