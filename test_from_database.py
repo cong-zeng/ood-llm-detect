@@ -15,6 +15,7 @@ from utils.Turing_utils import load_Turing
 from utils.Deepfake_utils import load_deepfake
 from utils.OUTFOX_utils import load_OUTFOX
 from utils.M4_utils import load_M4
+from utils.raid_utils import load_raid
 from src.dataset  import PassagesDataset
 from sklearn.metrics import roc_auc_score, roc_curve, auc, precision_recall_curve
 
@@ -99,6 +100,8 @@ def test(opt):
         test_database = load_Turing(opt.test_dataset_path)[opt.test_dataset_name]
     elif opt.mode=='M4':
         test_database = load_M4(opt.test_dataset_path)[opt.test_dataset_name]
+    elif opt.mode=='raid':
+        test_database = load_raid()[opt.test_dataset_name]
         
     test_dataset = PassagesDataset(test_database,mode=opt.mode,need_ids=True)
 
@@ -163,7 +166,10 @@ def test(opt):
 
             target_fpr = 0.05
             tpr_at_fpr_5 = np.interp(target_fpr, fpr, tpr)
-            print(f"K={k}, HumanRec: {human_rec}, MachineRec: {machine_rec}, AvgRec: {avg_rec}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}, AUC:{roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5}")
+            
+            target_tpr = 0.95                               # the TPR you care about
+            fpr_at_tpr_95 = np.interp(target_tpr, tpr, fpr) # linear interpolation
+            print(f"K={k}, HumanRec: {human_rec}, MachineRec: {machine_rec}, AvgRec: {avg_rec}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}, AUC:{roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5}, fpr_at_tpr_95: {fpr_at_tpr_95}")
             
             human_recs.append(human_rec)
             machine_recs.append(machine_rec)

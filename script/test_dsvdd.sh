@@ -1,9 +1,9 @@
 DATA_PATH="data" #PATH for the data
 # Model_PATH="ckpt/M4_multilingual_best.pth" #PATH for the model ckpt
 # Model_PATH="ckpt/Deepfake_best.pth" #PATH for the model ckpt
-Model_PATH="runs/deepfake-roberta-base_v6/model_classifier_best.pth" #PATH for the model ckpt
+Model_PATH="/home/zc/DeTeCtive/runs/M4-multilingual-roberta-base_v1" #PATH for the model ckpt
 
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5
+export CUDA_VISIBLE_DEVICES=0,1
 # raid
 # python test_dsvdd.py --device_num 2 --batch_size 128 --max_K 5 --model_name princeton-nlp/unsup-simcse-roberta-base \
 #                    --mode raid --database_name 'train' \
@@ -12,12 +12,12 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5
 
 
 # deepfake
-python test.py --device_num 6 --batch_size 128 --max_K 5 --model_name princeton-nlp/unsup-simcse-roberta-base \
-                   --mode deepfake  \
-                   --ood_type deepsvdd \
-                   --out_dim 768 \
-                   --test_dataset_path ${DATA_PATH}/Deepfake/cross_domains_cross_models --test_dataset_name 'test'\
-                   --model_path ${Model_PATH}
+# python test.py --device_num 6 --batch_size 128 --max_K 5 --model_name princeton-nlp/unsup-simcse-roberta-base \
+#                    --mode deepfake  \
+#                    --ood_type deepsvdd \
+#                    --out_dim 768 \
+#                    --test_dataset_path ${DATA_PATH}/Deepfake/cross_domains_cross_models --test_dataset_name 'test'\
+#                    --model_path ${Model_PATH}
 
 # # TuringBench
 # python test_dsvdd.py --device_num 8 --batch_size 128 --max_K 5 --model_name princeton-nlp/unsup-simcse-roberta-base \
@@ -32,10 +32,13 @@ python test.py --device_num 6 --batch_size 128 --max_K 5 --model_name princeton-
 #                    --model_path ${Model_PATH} --save_database --save_path database/M4-monolingual
 
 # # M4-multilingual
-# python test_dsvdd.py --device_num 2 --batch_size 128 --max_K 5 --model_name princeton-nlp/unsup-simcse-roberta-base \
-#                    --mode M4 --database_path ${DATA_PATH}/SemEval2024-M4/SubtaskA --database_name 'multilingual_train' \
-#                    --test_dataset_path ${DATA_PATH}/SemEval2024-M4/SubtaskA --test_dataset_name 'multilingual_test'\
-#                    --model_path ${Model_PATH} --save_database --save_path database/M4-multilingual
+python test.py --device_num 2 --batch_size 128 --max_K 5 --model_name princeton-nlp/unsup-simcse-roberta-base \
+                    --ood_type deepsvdd \
+                    --out_dim 768 \
+                   --mode M4 \
+                   --num_models \
+                   --test_dataset_path ${DATA_PATH}/SemEval2024-M4/SubtaskA --test_dataset_name 'multilingual_test'\
+                   --model_path ${Model_PATH} 
 
 # # OUTFOX,attack:none,outfox,dipper
 # python test_dsvdd.py --device_num 8 --batch_size 128 --max_K 51 --model_name princeton-nlp/unsup-simcse-roberta-base \

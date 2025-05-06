@@ -331,6 +331,9 @@ def train(opt):
 
             target_fpr = 0.05
             tpr_at_fpr_5 = np.interp(target_fpr, fpr, tpr)
+            target_tpr = 0.95                               # the TPR you care about
+            fpr_at_tpr_95 = np.interp(target_tpr, tpr, fpr)
+            
             # other metrics
             threshold, f1 = best_threshold_by_f1(label_np, pred_np)
             y_pred = np.where(pred_np>threshold,1,0)
@@ -338,7 +341,7 @@ def train(opt):
             precision = precision_score(label_np, y_pred)
             recall = recall_score(label_np, y_pred)
             f1 = f1_score(label_np, y_pred)
-            print(f"Test, AUC:{roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
+            print(f"Test, AUC:{roc_auc}, pr_auc: {pr_auc}, tpr_at_fpr_5: {tpr_at_fpr_5}, fpr_at_tpr_95: {fpr_at_tpr_95}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
 
             # Save test results
             test_results = {
