@@ -121,7 +121,7 @@ class SimCLR_Classifier_SCL(nn.Module):
         loss_energy = torch.where(is_id == 1, loss_energy_in, loss_energy_out).mean()
 
         # --------- Final Loss ---------
-        loss = self.a*loss_label+self.d*loss_classify + 0.01 * loss_energy
+        loss = self.a*loss_label+self.d*(loss_classify + 0.01 * loss_energy)
         if self.training:
             return loss,loss_classify,loss_energy,k, is_id
         else:

@@ -40,6 +40,7 @@ def infer(passages_dataloder,fabric,tokenizer,model,opt):
         passages_dataloder=tqdm(passages_dataloder,total=len(passages_dataloder))
     model.model.eval()
     model.eval()
+    embedding = []
     with torch.no_grad():
         preds_list = []
         test_labels = []
@@ -59,6 +60,7 @@ def infer(passages_dataloder,fabric,tokenizer,model,opt):
             if fabric.global_rank == 0 :
                 preds_list.append(out.cpu())
                 test_labels.append(k_outlabel.cpu())
+                embedding.append(k_out.cpu().numpy())
     return preds_list, test_labels
 
 def set_seed(seed):
@@ -82,7 +84,10 @@ def test(opt):
     else:
         fabric = Fabric(accelerator="cuda",devices=opt.device_num)
     fabric.launch()
-    model = SimCLR_Classifier_SCL(opt, opt.num_models, fabric)
+    if opt.ood_type == "hrn":
+        model = SimCLR_Classifier_SCL(opt, opt.num_models, fabric)
+    else:
+        model = SimCLR_Classifier_SCL(opt, fabric)
     state_dict = torch.load(opt.model_path, map_location="cpu")
     # new_state_dict={}
     # for key in state_dict.keys():
