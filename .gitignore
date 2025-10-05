@@ -21,5 +21,11 @@ runs/
 database/
 *.png
 dataset_information.ipynb
+data_visualization.ipynb
+test_from_database.py
+test_knn.py
+train_detective.py
+script/train_detective.sh
+script/test_from_database.sh
 
 .runs
