@@ -58,14 +58,6 @@ class SimCLR_Classifier_SCL(nn.Module):
         self.model = TextEmbeddingModel(opt.model_name)
         self.device=next(self.model.parameters()).device
 
-        # Load a pretrained model if resume option is set.
-        # if opt.resum:
-        #     state_dict = torch.load(opt.pth_path, map_location=self.device)
-        #     self.model.load_state_dict(state_dict)
-
-        # self.model = self.fabric.setup_module(self.model)
-        # print("Model is on:", next(self.model.parameters()).device)
-
         # Additional hyperparameters.
         self.esp=torch.tensor(1e-6,device=self.device)
         self.a=torch.tensor(opt.a,device=self.device)
@@ -78,16 +70,6 @@ class SimCLR_Classifier_SCL(nn.Module):
         self.nu = opt.nu # nu (0, 1]
         self.objective = opt.objective
         
-        # No Need for this
-        # self.DeepSVDD = DeepSVDD(
-        #     objective=opt.objective, 
-        #     out_dim=opt.out_dim, 
-        #     R=opt.R, 
-        #     c=None, 
-        #     nu=opt.nu, 
-        #     device=self.fabric.device,)
-        
-        # self.DeepSVDD = self.fabric.setup_module(self.DeepSVDD)
     
     def initialize_center_c(self,train_loader, eps=0.1):
         
@@ -114,7 +96,6 @@ class SimCLR_Classifier_SCL(nn.Module):
         # Normalize to the hypersphere surface.
         c = c / torch.norm(c)
         self.c.data = c
-        # print('Center c initialized:',c)
 
 
     def get_encoder(self):
@@ -144,25 +125,49 @@ class SimCLR_Classifier_SCL(nn.Module):
         return logits_model
     
     def compute_loss(self, outputs, machine_txt_idx, human_txt_idx):
+        if len(machine_txt_idx) == 0 or len(human_txt_idx) == 0:
+            return torch.tensor(0.0, device=outputs.device, requires_grad=True)
+        
         machine_outputs = outputs[machine_txt_idx]
         human_outputs = outputs[human_txt_idx]
-
-        dist_machine = torch.sum((machine_outputs - self.c) ** 2, dim=1)
-        diff = human_outputs.float() - self.c.float()
-        squared_diff = diff ** 2
-        dist_human = torch.clamp(torch.sum(squared_diff, dim=1), max=1e6)
-
+        
+        machine_outputs = machine_outputs.float()
+        human_outputs = human_outputs.float()
+        c_float = self.c.float()
+        
+        # Check if the input includes Nan or inf
+        if torch.isnan(machine_outputs).any() or torch.isnan(human_outputs).any() or torch.isnan(c_float).any():
+            print("Warning: NaN detected in inputs")
+            return torch.tensor(0.0, device=outputs.device, requires_grad=True)
+        
+        if torch.isinf(machine_outputs).any() or torch.isinf(human_outputs).any() or torch.isinf(c_float).any():
+            print("Warning: Inf detected in inputs")
+            return torch.tensor(0.0, device=outputs.device, requires_grad=True)
+        
+        # compute the distance
+        diff_machine = machine_outputs - c_float
+        dist_machine = torch.sum(diff_machine ** 2, dim=1)
+        dist_machine = torch.clamp(dist_machine, min=1e-12, max=1e6)
+        
+        diff_human = human_outputs - c_float
+        dist_human = torch.sum(diff_human ** 2, dim=1)
+        dist_human = torch.clamp(dist_human, min=1e-12, max=1e6)
+        
+        # Compute the avg distance
         avg_dist_machine = dist_machine.mean()
-        avg_dist_human = dist_human.mean().to(human_outputs.dtype)
-        dist = avg_dist_machine - avg_dist_human
-        # dist = F.softplus(avg_dist_machine - avg_dist_human)
-
-
-        if self.objective == 'soft-boundary':
-            scores = dist - self.R ** 2
-            loss = self.R ** 2 + (1 / self.nu) * torch.mean(torch.max(torch.zeros_like(scores), scores))
-        else:
-            loss = dist
+        avg_dist_human = dist_human.mean()
+        
+        if torch.isnan(avg_dist_machine) or torch.isnan(avg_dist_human):
+            return torch.tensor(0.0, device=outputs.device, requires_grad=True)
+        
+        diff = avg_dist_machine - avg_dist_human
+        
+        diff = torch.clamp(diff, min=-100, max=100)
+        loss = F.softplus(diff)
+        
+        if torch.isnan(loss) or torch.isinf(loss):
+            return torch.tensor(0.0, device=outputs.device, requires_grad=True)
+        
         return loss
 
     def forward(self, batch, indices1, indices2,label):
@@ -191,8 +196,6 @@ class SimCLR_Classifier_SCL(nn.Module):
         # Compute contrastive logits.
         logits_label = self._compute_logits(q,indices1, indices2,label,k,k_index1,k_index2,k_label)
         
-        # Calculate DeepSVDD loss only positive sample.
-        # loss_DeepSVDD = self.DeepSVDD.compute_loss(q)
 
         # Calculate DeepSVDD loss all sample.
         machine_txt_idx = (label == 0).view(-1)

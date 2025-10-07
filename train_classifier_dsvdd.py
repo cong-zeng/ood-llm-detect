@@ -297,13 +297,15 @@ def train(opt):
         if fabric.global_rank == 0:
             if roc_auc>max_auc:
                 max_auc=roc_auc
-                torch.save(model.get_encoder().state_dict(), os.path.join(opt.savedir,'model_best.pth'))
                 torch.save(model.state_dict(), os.path.join(opt.savedir,'model_classifier_best.pth'))
-                print('Save model to {}'.format(os.path.join(opt.savedir,'model_best.pth'.format(epoch))), flush=True)
+                print('Save model to {}'.format(os.path.join(opt.savedir,'model_classifier_best.pth'.format(epoch))), flush=True)
                 # save the best test result
                 test_results = {
                     'epoch': epoch,
-                    'auc': auc,
+                    'roc_auc': roc_auc,
+                    'pr_auc': pr_auc,
+                    'tpr_at_fpr_5': tpr_at_fpr_5,
+                    'fpr_at_tpr_95': fpr_at_tpr_95,
                     'acc': acc,
                     'precision': precision,
                     'recall': recall,
@@ -314,14 +316,8 @@ def train(opt):
                     json.dump(test_results, f, indent=4)
                 print(f"Best test results saved to {test_results_path}")
             
-            if epoch%10==0:
-                torch.save(model.get_encoder().state_dict(), os.path.join(opt.savedir,'model_{}.pth'.format(epoch)))
-                torch.save(model.state_dict(), os.path.join(opt.savedir,'model_classifier_{}.pth'.format(epoch)))
-                print('Save model to {}'.format(os.path.join(opt.savedir,'model_{}.pth'.format(epoch))), flush=True)
-            
-            torch.save(model.get_encoder().state_dict(), os.path.join(opt.savedir,'model_last.pth'))
             torch.save(model.state_dict(), os.path.join(opt.savedir,'model_classifier_last.pth'))
-            print('Save model to {}'.format(os.path.join(opt.savedir,'model_last.pth'.format(epoch))), flush=True)        
+            print('Save model to {}'.format(os.path.join(opt.savedir,'model_classifier_last.pth'.format(epoch))), flush=True)        
         
         fabric.barrier()
         
