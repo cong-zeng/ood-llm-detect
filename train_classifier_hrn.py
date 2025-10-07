@@ -141,7 +141,6 @@ def train_single_classifier(model, model_set_idx, model_set_name, opt, fabric: F
             # backward pass and optimization
             avg_loss = (avg_loss * i + loss.item()) / (i+1)
             fabric.backward(loss) 
-            # fabric.clip_gradients(model, optimizer, max_norm=1.0, norm_type=2)
             optimizer.step() 
 
             # log
@@ -150,14 +149,7 @@ def train_single_classifier(model, model_set_idx, model_set_name, opt, fabric: F
                 pbar.set_description(
                     ('%11s' * 2 + '%11.4g' * 5) %
                     (f'{epoch + 1}/{opt.total_epoch}', mem, current_lr, loss.item(),avg_loss, loss_label, loss_classfiy))
-                # if current_step%10==0:
-                #     writer.add_scalar('model_set_idx', model_set_idx, current_step)
-                #     writer.add_scalar('lr', current_lr, current_step)
-                #     writer.add_scalar('loss', loss.item(), current_step)
-                #     writer.add_scalar('avg_loss', avg_loss, current_step)
-                #     writer.add_scalar('loss_label', loss_label.item(), current_step)
-                #     writer.add_scalar('loss_classfiy', loss_classfiy.item(), current_step)
-        
+                
         #Validation
         with torch.no_grad():
             model.eval()
@@ -195,32 +187,9 @@ def train_single_classifier(model, model_set_idx, model_set_name, opt, fabric: F
                 recall = recall_score(label_np, y_pred)
                 f1 = f1_score(label_np, y_pred)
                 print(f"Val, AUC: {auc}, Acc:{acc}, Precision:{precision}, Recall:{recall}, F1:{f1}")
-                # writer.add_scalar('val_auc', auc, epoch)
-                # writer.add_scalar('val_acc', acc, epoch)
-                # writer.add_scalar('val_precision', precision, epoch)
-                # writer.add_scalar('val_recall', recall, epoch)
-                # writer.add_scalar('val_f1', f1, epoch)
-                # writer.add_scalar('val_threshold', threshold, epoch)
-                # writer.add_scalar('val_f1', f1, epoch)
 
         torch.cuda.empty_cache()
         fabric.barrier()
-
-    #     # Save model
-    #     if fabric.global_rank == 0:
-    #         if auc > max_auc:
-    #             max_auc = auc
-    #             torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_{model_set_name}_best.pth"))
-    #             print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_{model_set_name}_best.pth")) 
-    #         # writer.add_scalar('max_AUC', max_auc, epoch)
-    #         print("[Epoch %d/%d/%d]  [loss: %0.2f] [MaxAUC: %0.4f]" %
-    #                 (epoch + 1, opt.total_epoch, model_set_idx + 1, loss, max_auc))
-
-
-    # # Return best model and best AUC
-    # best_model = SimCLR_Classifier_SCL(opt,fabric)
-    # best_model.load_state_dict(torch.load(os.path.join(opt.savedir, f"model_classifier_{model_set_name}_best.pth")))
-
     return model, None, None
 
 def train(opt):
@@ -317,9 +286,7 @@ def train(opt):
         if fabric.global_rank == 0:
             pred_np = 1 - torch.cat(pred_list).view(-1).numpy()
             label_np = torch.cat(test_labels).view(-1).numpy()
-            # label_np = 1 - (torch.abs(torch.sign(label_np - model_set_idx)))
-            # auc = roc_auc_score(label_np, pred_np)
-            # print("Test AUC: ", auc)
+
             fpr, tpr, _ = roc_curve(label_np, pred_np)
             roc_auc = auc(fpr, tpr)
 
@@ -343,6 +310,9 @@ def train(opt):
             test_results = {
                 'auc': roc_auc,
                 'acc': acc,
+                'pr_auc': pr_auc, 
+                'tpr_at_fpr_5': tpr_at_fpr_5,
+                'fpr_at_tpr_95': fpr_at_tpr_95,
                 'precision': precision,
                 'recall': recall,
                 'f1': f1

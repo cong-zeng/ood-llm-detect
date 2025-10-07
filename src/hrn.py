@@ -36,9 +36,7 @@ class SimCLR_Classifier_SCL(nn.Module):
         self.fabric = fabric
         self.model = TextEmbeddingModel(opt.model_name)
         self.device=self.model.model.device
-        # if opt.resum:
-        #     state_dict = torch.load(opt.pth_path, map_location=self.device)
-        #     self.model.load_state_dict(state_dict)
+        
         self.esp=torch.tensor(1e-6,device=self.device)
         self.classifiers = nn.ModuleList(
                 ClassificationHead(opt.projection_size, opt.classifier_dim)  for _ in range(num_model)
@@ -129,10 +127,6 @@ class SimCLR_Classifier_SCL(nn.Module):
             mainloss_p = torch.log(torch.sigmoid(out) + self.esp).mean()
             loss_pen = self._calc_gradient_penalty(self.classifiers[model_idx], q_machine, q_machine)
         loss_classify = -mainloss_p + 0.1 * loss_pen
-        # For raid
-        # loss_classify = -mainloss_p + 1 * loss_pen
-
-
 
         # Total loss
         loss = self.a*loss_label+self.d*loss_classify
