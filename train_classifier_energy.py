@@ -98,7 +98,6 @@ def train(opt):
 
     if opt.freeze_embedding_layer:
         for name, param in model.model.named_parameters():
-            # param.requires_grad=False
             if 'emb' in name:
                 param.requires_grad=False
                 
@@ -256,6 +255,9 @@ def train(opt):
                 test_results = {
                     'epoch': epoch,
                     'auc': roc_auc,
+                    'pr_auc': pr_auc, 
+                    'tpr_at_fpr_5': tpr_at_fpr_5,
+                    'fpr_at_tpr_95': fpr_at_tpr_95,
                     'acc': acc,
                     'precision': precision,
                     'recall': recall,
@@ -265,10 +267,6 @@ def train(opt):
                 with open(test_results_path, 'w') as f:
                     json.dump(test_results, f)
                 print("Test results saved at: ", test_results_path)
-            # save every 10 epochs`
-            if (epoch+1)%10==0:
-                torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_energy_epoch_{epoch+1}.pth"))
-                print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_energy_epoch_{epoch+1}.pth"))
 
             torch.save(model.state_dict(), os.path.join(opt.savedir, f"model_classifier_energy_last.pth"))
             print("Model saved at: ", os.path.join(opt.savedir, f"model_classifier_energy_last.pth")) 
