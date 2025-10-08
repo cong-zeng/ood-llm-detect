@@ -4,6 +4,11 @@ export CUDA_VISIBLE_DEVICES=0,1
 #################################################################################
 #                                   Energy                                      #
 #################################################################################
+
+# Since Energy is based on weight pretrained by DeTecCtive, We need to first download the weights
+# For Deepfake dataset
+wget -c https://huggingface.co/heyongxin233/DeTeCtive/resolve/main/Deepfake_best.pth ./ckpt/Deepfake_best.pth
+
 # deepfake
 Model_pth=""
 python train_classifier_energy.py --device_num 2 --per_gpu_batch_size 32 --total_epoch 50 --lr 2e-5 --warmup_steps 1000\
@@ -14,6 +19,10 @@ python train_classifier_energy.py --device_num 2 --per_gpu_batch_size 32 --total
     --resum True\
     --pth_path ${Model_pth}\
 
+# For M4 dataset
+wget -c https://huggingface.co/heyongxin233/DeTeCtive/resolve/main/M4_multilingual_best.pth -c ./ckpt/M4_multilingual_best.pth 
+# # M4-multilingual
+pretrained_pth="./ckpt/M4_multilingual_best.pth"
 # M4-multilingual
 Model_pth=""
 python train_classifier_energy.py --device_num 2 --per_gpu_batch_size 32 --total_epoch 50 --lr 2e-5 --warmup_steps 2000\
@@ -26,7 +35,8 @@ python train_classifier_energy.py --device_num 2 --per_gpu_batch_size 32 --total
     --name M4-multilingual-roberta-base --freeze_embedding_layer --database_name multilingual_train --test_dataset_name multilingual_test
 
 # raid
-Model_pth=""
+wget -c https://huggingface.co/Shengkun/ood-detection/resolve/main/model_raid.pth -c ./ckpt/model_raid.pth
+Model_pth="./ckpt/model_raid.pth"
 python train_classifier_energy.py --device_num 2 --per_gpu_batch_size 64 --total_epoch 50 --lr 2e-5 --warmup_steps 1000\
     --method energy\
     --classifier_dim 6\
