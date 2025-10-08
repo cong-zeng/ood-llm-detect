@@ -83,7 +83,7 @@ We provide our pretrained weights in DeepSVDD setting to reproduce the results i
 
 ## Acknowledgement
 
-We gratefully acknowledge that our codebase is largely built upon the [DeTeCtive] (https://github.com/heyongxin233/DeTeCtive) library. We thank the authors and contributors for their valuable open-source work and weights, which significantly facilitated our research and development.
+We gratefully acknowledge that our codebase is largely built upon the [DeTeCtive](https://github.com/heyongxin233/DeTeCtive) library. We thank the authors and contributors for their valuable open-source work and weights, which significantly facilitated our research and development.
 
 ## Citation
 
