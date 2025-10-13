@@ -90,12 +90,13 @@ We gratefully acknowledge that our codebase is largely built upon the [DeTeCtive
 If you use our code or findings in your research, please cite us as:
 
 ```bash
-@inproceedings{
-anonymous2025human,
-title={Human Texts Are Outliers: Detecting {LLM}-generated Texts via Out-of-distribution Detection},
-author={Anonymous},
-booktitle={The Thirty-ninth Annual Conference on Neural Information Processing Systems},
-year={2025},
-url={https://openreview.net/forum?id=0XKZFK4hQt}
+@misc{zeng2025humantextsoutliersdetecting,
+      title={Human Texts Are Outliers: Detecting LLM-generated Texts via Out-of-distribution Detection}, 
+      author={Cong Zeng and Shengkun Tang and Yuanzhou Chen and Zhiqiang Shen and Wenchao Yu and Xujiang Zhao and Haifeng Chen and Wei Cheng and Zhiqiang Xu},
+      year={2025},
+      eprint={2510.08602},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2510.08602}, 
 }
 ```
