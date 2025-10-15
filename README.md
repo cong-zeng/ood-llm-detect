@@ -6,7 +6,7 @@
 *Cong Zeng\*, Shengkun Tang\*, Yuanzhou Chen, Zhiqiang Shen, Wenchao Yu, Xujiang Zhao, Haifeng Chen, Wei Cheng†, Zhiqiang Xu†*  
 *NeurIPS 2025*  
 
-📄 [Paper](https://openreview.net/forum?id=0XKZFK4hQt&referrer=%5BAuthor%20Console%5D(%2Fgroup%3Fid%3DNeurIPS.cc%2F2025%2FConference%2FAuthors%23your-submissions))
+📄 [Paper](https://arxiv.org/abs/2510.08602)
 
 ---
 
