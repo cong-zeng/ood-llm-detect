@@ -69,6 +69,17 @@ class SimCLR_Classifier_SCL(nn.Module):
         self.c = nn.Parameter(torch.zeros(self.opt.out_dim), requires_grad=False)
         self.nu = opt.nu # nu (0, 1]
         self.objective = opt.objective
+
+        # VIB: μ and logσ
+        latent_dim = 128
+        hidden_size = 768
+        self.proj_mu = nn.Linear(hidden_size, latent_dim)
+        self.proj_logvar = nn.Linear(hidden_size, latent_dim)
+    
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
         
     
     def initialize_center_c(self,train_loader, eps=0.1):
@@ -186,6 +197,13 @@ class SimCLR_Classifier_SCL(nn.Module):
                 
         bsz = batch['input_ids'].size(0)
         q = self.model(batch)
+        # Latent parameters
+        mu = self.proj_mu(q)
+        logvar = self.proj_logvar(q)
+
+        # Sample latent code
+        q = self.reparameterize(mu, logvar)
+
         k = q.clone().detach()
         k = self.fabric.all_gather(k).view(-1, k.size(1))
         k_label = self.fabric.all_gather(label).view(-1)
@@ -209,9 +227,12 @@ class SimCLR_Classifier_SCL(nn.Module):
             loss_label = torch.tensor(0,device=self.device)
         else:
             loss_label = F.cross_entropy(logits_label, gt)
+        
+        
+        kl = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
 
         # Combine both losses with their respective weights.
-        loss = self.a * loss_label+ self.d * loss_DeepSVDD 
+        loss = self.a * loss_label+ self.d * loss_DeepSVDD + 0.001 * kl
         if self.training:
             return loss,loss_label,loss_DeepSVDD ,k,k_label
         else:
